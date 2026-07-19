@@ -104,11 +104,10 @@ class SearchEngine:
 
             # Extract human-readable downloaded time from timestamp folder name
             # Format: DD-MM-YYYY-(HH_MM_SS_mmm) -> DD-MM-YYYY HH:MM:SS
-            match = re.match(r'(\d{2}-\d{2}-\d{4})-\((\d{2})_(\d{2})_(\d{2})_\d{3,6}\)', timestamp_folder)
+            match = re.match(r'(\d{2}-\d{2}-\d{4})-\((\d{2})_(\d{2})_(\d{2})_?\d*\)?', timestamp_folder)
             if match:
                 downloaded_time = f"{match.group(1)} {match.group(2)}:{match.group(3)}:{match.group(4)}"
             else:
-                # Fallback to file creation time if folder structure doesn't match format
                 downloaded_time = timestamp_folder
 
             # Generate basic keywords offline from text content
