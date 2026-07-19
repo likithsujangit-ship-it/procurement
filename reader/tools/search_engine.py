@@ -251,15 +251,17 @@ class SearchEngine:
         # Normalize search terms
         normalized_search = normalize_text(search_terms) if search_terms else ""
 
-        # Pre-scan for exact filename/stem matches in index database
+        # Pre-scan for exact filename/stem matches or filename word boundary matches in index database
         has_exact_match = False
+        has_filename_word_match = False
         if normalized_search:
             for doc in self.index.values():
                 fn_normalized = normalize_text(doc["filename"])
                 stem_normalized = normalize_text(Path(doc["filename"]).stem)
                 if normalized_search == fn_normalized or normalized_search == stem_normalized:
                     has_exact_match = True
-                    break
+                if re.search(rf'\b{re.escape(normalized_search)}\b', fn_normalized):
+                    has_filename_word_match = True
 
         candidates: List[Tuple[str, Dict[str, Any], float]] = []
 
@@ -268,11 +270,15 @@ class SearchEngine:
             fn_normalized = normalize_text(doc["filename"])
             stem_normalized = normalize_text(Path(doc["filename"]).stem)
 
-            # If there is an exact filename/stem match in the index, we restrict results only to those exact or close name matches
-            if has_exact_match and normalized_search:
-                # Discard files where query is not an exact match or substring of the normalized filename
-                if normalized_search != fn_normalized and normalized_search != stem_normalized and normalized_search not in fn_normalized and fn_normalized not in normalized_search:
-                    continue
+            # Prioritize filename matching: if any file matches by name exactly or contains the search term as a word in its name,
+            # we restrict candidate results only to those files that have a filename match (preventing content fallback clutter)
+            if normalized_search:
+                if has_exact_match:
+                    if normalized_search != fn_normalized and normalized_search != stem_normalized and normalized_search not in fn_normalized and fn_normalized not in normalized_search:
+                        continue
+                elif has_filename_word_match:
+                    if not re.search(rf'\b{re.escape(normalized_search)}\b', fn_normalized):
+                        continue
 
             # Apply File Type Filter
             if filters.get("file_type") and doc["doc_type"] != filters["file_type"]:
@@ -298,8 +304,10 @@ class SearchEngine:
             if normalized_search:
                 if normalized_search == fn_normalized or normalized_search == stem_normalized:
                     score += 80.0
-                elif normalized_search in fn_normalized or fn_normalized in normalized_search:
+                elif re.search(rf'\b{re.escape(normalized_search)}\b', fn_normalized):
                     score += 50.0
+                elif normalized_search in fn_normalized:
+                    score += 20.0
                 elif any(word in fn_normalized for word in normalized_search.split()):
                     matched_words = sum(1 for word in normalized_search.split() if word in fn_normalized)
                     score += matched_words * 10.0
@@ -315,12 +323,12 @@ class SearchEngine:
 
             # Rank 3: Text content matches (up to 30 points)
             if search_terms:
-                # Count frequency of search terms in text
-                term_count = text_lower.count(search_terms)
+                # Use word boundaries to prevent substring matching inside other words (e.g. 'arm' in 'margins')
+                pattern = rf'\b{re.escape(search_terms)}\b'
+                term_count = len(re.findall(pattern, text_lower))
                 if term_count > 0:
                     score += min(term_count * 3.0, 20.0)
-                    if search_terms in text_lower:
-                        score += 10.0
+                    score += 10.0
 
             # Rank 4: Keyword tag exact match boost
             if any(term in doc["keywords"] for term in search_terms.split()):
