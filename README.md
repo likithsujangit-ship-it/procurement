@@ -42,7 +42,7 @@ EMAIL_AI/
 │   │   └── <sender_prefix>/
 │   │       └── <DD-MM-YYYY-(HH_MM_SS_fff)>/
 │   │           └── downloaded_file.pdf
-│   ├── outputs/         # Generated summary.json and summary.txt
+│   ├── outputs/         # Generated summary.json, summary.txt, and search_index.json
 │   └── tools/
 │       ├── __init__.py
 │       ├── gmail_auth.py
@@ -71,32 +71,34 @@ EMAIL_AI/
 
 ---
 
-## Features Implemented
+## Features Implemented & Explained
 
-### 1. Email Sender (`sender/`)
+### 1. Unified Assistant (`assistant/`)
+* **Namespace Isolation**: Uses a custom stack-trace routing module proxy in `sys.modules["config"]` to run both projects in one memory space without namespace collisions.
+* **Central Intent Classifier**: Routes user prompts into actions: send, read, download, extract, summarize, or search.
+* **Per-Sender Query Loop**: Loops queries independently per sender if multiple addresses are listed.
+* **Recursive Glob Search**: Searches directories recursively (`files/**/filename`) so that document extraction works no matter which subfolder a file is downloaded to.
+* **Dynamic N Emails Parsing**: Extracts numeric parameters (e.g. "last 5", "latest 10") to cap inbox queries.
+
+### 2. Email Sender (`sender/`)
 * **Natural Language Command Parsing**: Extracts recipients, CC, BCC, attachments, subject context, and tone from text.
 * **AI Content Generation**: Generates highly styled HTML templates (with inline CSS) and plain-text alternatives matching 12 different tones.
 * **Attachment Verification**: Ensures files are available inside `sender/files/` before drafting.
 * **MIME Construction & SMTP Transmission**: Builds standard compliant emails and transmits over TLS to Gmail SMTP.
 
-### 2. Email Reader (`reader/`)
+### 3. Email Reader & Downloader (`reader/`)
 * **OAuth 2.0 Credentials Manager**: Seamlessly manages `token.json` authorization so browser login is only needed once.
 * **Attachment Organizer**: Saves files into `reader/files/<sender_prefix>/DD-MM-YYYY-(HH_MM_SS_fff)/` based on who sent the email and the exact millisecond received time.
 * **Structural Document Extractors**: Dedicated layout readers for PDFs, DOCX (Word), PPTX (Slides), XLSX (Excel matrices), CSV, archives (ZIP), and OCR image scanning.
 * **Resource Extractor**: Pulls out OTPs, meeting dates, phone numbers, tracking IDs, invoice IDs, and Drive/GitHub links.
-* **Deep Synthesizer**: Uses Groq Llama 3.3 70B to generate structured action summaries saved as JSON and TXT.
-
-### 3. Unified Assistant (`assistant/`)
-* **Namespace Isolation**: Uses a custom stack-trace routing module proxy in `sys.modules["config"]` to run both projects in one memory space without namespace collisions.
-* **Intent Classifier**: Automatically maps prompts to send, read, download, extract, summarize, or search tasks.
-* **Per-Sender Query Loop**: Loops queries independently per sender if multiple addresses are given.
-* **Recursive Glob Search**: Searches directories recursively (`files/**/filename`) so that document extraction works no matter which subfolder a file is downloaded to.
-* **Dynamic N Emails Parsing**: Extracts numeric parameters (e.g. "last 5", "latest 10") to cap queries.
 
 ### 4. AI Search Engine (`reader/tools/search_engine.py`)
-* **Incremental File Indexing**: Scans all subfolders in `reader/files/` recursively. Uses size and mtime checks to skip unmodified files.
-* **Semantic Query Processing**: Groq-based Llama parser that converts user prompts into structured filters (by file type, sender, and search terms).
-* **Multi-Criteria Ranking**: Calculates a match score based on filename similarity, term frequency in extracted content, keyword tags, and semantic relevance snippets.
+* **Incremental File Indexing**: Scans all subfolders in `reader/files/` recursively. Uses size and mtime checks to skip unmodified files. Automatically indexes new downloads without manual re-indexing.
+* **Typo-Tolerance (Fuzzy Similarity)**: Implements character bigram Jaccard similarity. Matches sender names or filenames even if the user makes spelling typos (e.g., matching `mitta.venakata` to `mitta.venkata2024` with a high similarity threshold).
+* **Word Boundary Precision**: Uses regular expression word boundaries (`\bword\b`) for content searches. This prevents short terms (like `"arm"`, `"tax"`, `"otp"`) from matching inside other common words (like `"margins"` or `"market"`).
+* **Exact Filename Restrict**: If the search query matches any filename or stem exactly, the search engine restricts results to only those files, filtering out unrelated text content clutter.
+* **Multi-Extension Support**: Parses lists or strings of extensions (e.g. `.pdf and .pptx`) and filters results to match any of the target types.
+* **Dynamic API Token Optimization**: Calls Llama API snippet generator only for the top 3 high-relevance matches. For other results, it uses a local regex context locator. This keeps execution under 1 second and prevents rate-limiting.
 
 ---
 
@@ -129,7 +131,6 @@ python -m assistant.assistant
 Inside the **`ASSISTANT >`** CLI prompt, you can run these commands:
 
 ### 1. Sending Emails
-
 * **Single recipient, no attachments**:
   `Send mail to friend@example.com regarding project sync saying let's meet at 2pm.`
 * **Multiple recipients, no attachments**:
@@ -142,7 +143,6 @@ Inside the **`ASSISTANT >`** CLI prompt, you can run these commands:
   `Send report.xlsx and slides.pptx to director@corp.com and supervisor@corp.com regarding quarterly status saying here are the files.`
 
 ### 2. Reading and Summarizing Inbox Emails
-
 * **Summarize the single latest email**:
   `Summarize latest email from manager@gmail.com`
 * **Summarize last N emails from a sender**:
@@ -151,7 +151,6 @@ Inside the **`ASSISTANT >`** CLI prompt, you can run these commands:
   `Summarize emails from likithtech2006@gmail.com and antigravitysubtemp@gmail.com`
 
 ### 3. Downloading Attachments
-
 * **Download attachments from the single latest email**:
   `Download latest attachments from antigravitysubtemp@gmail.com`
 * **Download last N attachments from a sender**:
@@ -160,7 +159,6 @@ Inside the **`ASSISTANT >`** CLI prompt, you can run these commands:
   `Download attachments from likithtech2006@gmail.com and antigravitysubtemp@gmail.com`
 
 ### 4. File Content Extraction and AI Analysis
-
 * **Extract text from a downloaded document**:
   `Extract document resume.pdf`
 * **Extract text from a downloaded spreadsheet**:
@@ -170,13 +168,17 @@ Inside the **`ASSISTANT >`** CLI prompt, you can run these commands:
 
 ### 5. Natural Language AI Search Engine
 
-* **Find matching invoices**:
-  `Find invoice`
-* **Search for offer letters**:
-  `Search offer letter`
-* **Show all documents related to Python**:
-  `Find documents about Python`
-* **Show Amazon bills**:
-  `Show Amazon bills`
-* **Find files sent by Google**:
-  `Find PDFs from Google`
+* **Search by Exact/Partial Filename**:
+  * `Find construction.pdf` (Strictly returns only files named `construction.pdf` across all folders)
+  * `Find resume` (Returns any file name containing "resume")
+* **Search by Mail/Sender Folder**:
+  * `Search mittavenkatasaisujan` (Lists all folders and files sent by `mittavenkatasaisujan`)
+  * `Search google` (Lists all folders and files sent by `google`)
+* **Search by Typo-Tolerant Names**:
+  * `Find mitta.venakata` (Fuzzily matches the folder `mitta.venkata2024` despite spelling typos)
+* **Search with Multiple File Type Extensions**:
+  * `Find mitta with .pdf and .pptx` (Filters to return only PDF and PPTX attachments received from folders containing "mitta")
+  * `Find .pptx` (Lists all PowerPoint files across all sender folders)
+* **Search by Document Context**:
+  * `Find documents about Python` (Searches within parsed document text contexts for keywords)
+  * `Show Amazon bills` (Filters for files sent by "Amazon" containing billing text)
