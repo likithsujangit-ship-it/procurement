@@ -260,6 +260,7 @@ class SearchEngine:
             score = 0.0
             filename_lower = doc["filename"].lower()
             text_lower = doc["extracted_text"].lower()
+            sender_lower = doc["sender"].lower()
 
             # Rank 1: Filename matches (Weight 40%)
             if search_terms:
@@ -268,7 +269,14 @@ class SearchEngine:
                 elif search_terms in filename_lower:
                     score += 20.0
 
-            # Rank 2: Text content matches (Weight 40%)
+            # Rank 2: Sender matches (Weight 35%)
+            if search_terms:
+                if search_terms == sender_lower:
+                    score += 35.0
+                elif search_terms in sender_lower:
+                    score += 25.0
+
+            # Rank 3: Text content matches (Weight 40%)
             if search_terms:
                 # Count frequency of search terms in text
                 term_count = text_lower.count(search_terms)
@@ -280,9 +288,13 @@ class SearchEngine:
                     if search_terms in text_lower:
                         score += 10.0
 
-            # Rank 3: Keyword tag exact match boost
+            # Rank 4: Keyword tag exact match boost
             if any(term in doc["keywords"] for term in search_terms.split()):
                 score += 10.0
+
+            # Base score boost if query filters by sender and there are no search terms
+            if filters.get("sender") and not search_terms:
+                score += 50.0
 
             if score > 0:
                 candidates.append((rel_path, doc, score))
