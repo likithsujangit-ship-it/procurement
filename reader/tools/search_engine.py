@@ -344,20 +344,22 @@ class SearchEngine:
         # Sort candidates by match score descending
         candidates.sort(key=lambda x: x[2], reverse=True)
 
-        # Truncate to top 5 candidates for semantic snippet evaluation to save API tokens
-        top_candidates = candidates[:5]
+        # Return up to 100 candidates to prevent truncation of matching sender files
+        top_candidates = candidates[:100]
         results: List[Dict[str, Any]] = []
 
-        for rel_path, doc, score in top_candidates:
-            # Generate AI snippet explaining the match
-            snippet = self._generate_ai_snippet(user_query, doc)
+        for idx, (rel_path, doc, score) in enumerate(top_candidates):
+            # Only use Groq API for top 3 high-relevance candidates to preserve API speed and rate limits
+            use_groq = (idx < 3) and (score >= 30.0)
+            snippet = self._generate_snippet(user_query, doc, use_groq=use_groq)
             
             # Boost score semantically if AI snippet confirms high relevance
             final_score = score
-            if "relevance: high" in snippet.lower():
-                final_score = min(score + 10.0, 100.0)
-            elif "relevance: low" in snippet.lower():
-                final_score = max(score - 10.0, 5.0)
+            if use_groq:
+                if "relevance: high" in snippet.lower():
+                    final_score = min(score + 10.0, 100.0)
+                elif "relevance: low" in snippet.lower():
+                    final_score = max(score - 10.0, 5.0)
 
             results.append({
                 "filename": doc["filename"],
@@ -375,11 +377,11 @@ class SearchEngine:
         results.sort(key=lambda x: x["score"], reverse=True)
         return results
 
-    def _generate_ai_snippet(self, user_query: str, doc: Dict[str, Any]) -> str:
+    def _generate_snippet(self, user_query: str, doc: Dict[str, Any], use_groq: bool) -> str:
         """Generates a short explanation snippet using Groq or falls back to text search snippets."""
         text_preview = doc["extracted_text"][:2500]
         
-        if self.groq_client:
+        if use_groq and self.groq_client:
             try:
                 system_prompt = (
                     "You are a search result snippet summarizer. "
@@ -424,4 +426,4 @@ class SearchEngine:
             snippet_text = text_preview[start:end].replace("\n", " ").strip()
             return f"Relevance: Medium\nSnippet: ...{snippet_text}..."
             
-        return f"Relevance: Medium\nSnippet: File '{doc['filename']}' matched criteria by filename metadata."
+        return f"Relevance: Medium\nSnippet: File '{doc['filename']}' matched criteria by filename or sender metadata."
