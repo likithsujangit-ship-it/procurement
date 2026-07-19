@@ -59,6 +59,7 @@ EMAIL_AI/
 │       ├── link_extractor.py
 │       ├── summarizer.py
 │       ├── groq_client.py
+│       ├── search_engine.py
 │       └── utils.py
 └── assistant/
     ├── __init__.py
@@ -87,10 +88,15 @@ EMAIL_AI/
 
 ### 3. Unified Assistant (`assistant/`)
 * **Namespace Isolation**: Uses a custom stack-trace routing module proxy in `sys.modules["config"]` to run both projects in one memory space without namespace collisions.
-* **Intent Classifier**: Automatically maps prompts to send, read, download, extract, or summarize tasks.
+* **Intent Classifier**: Automatically maps prompts to send, read, download, extract, summarize, or search tasks.
 * **Per-Sender Query Loop**: Loops queries independently per sender if multiple addresses are given.
 * **Recursive Glob Search**: Searches directories recursively (`files/**/filename`) so that document extraction works no matter which subfolder a file is downloaded to.
 * **Dynamic N Emails Parsing**: Extracts numeric parameters (e.g. "last 5", "latest 10") to cap queries.
+
+### 4. AI Search Engine (`reader/tools/search_engine.py`)
+* **Incremental File Indexing**: Scans all subfolders in `reader/files/` recursively. Uses size and mtime checks to skip unmodified files.
+* **Semantic Query Processing**: Groq-based Llama parser that converts user prompts into structured filters (by file type, sender, and search terms).
+* **Multi-Criteria Ranking**: Calculates a match score based on filename similarity, term frequency in extracted content, keyword tags, and semantic relevance snippets.
 
 ---
 
@@ -161,3 +167,16 @@ Inside the **`ASSISTANT >`** CLI prompt, you can run these commands:
   `Extract document report.xlsx`
 * **Generate AI summary report for a local file**:
   `Summarize document invoice.pdf`
+
+### 5. Natural Language AI Search Engine
+
+* **Find matching invoices**:
+  `Find invoice`
+* **Search for offer letters**:
+  `Search offer letter`
+* **Show all documents related to Python**:
+  `Find documents about Python`
+* **Show Amazon bills**:
+  `Show Amazon bills`
+* **Find files sent by Google**:
+  `Find PDFs from Google`

@@ -88,6 +88,21 @@ def run_unit_tests() -> None:
     else:
         print("  [FAIL] File attachments parsing failed.")
 
+    # Test 4: Search Engine Query Intent Fallback Parser
+    print("\nTest 4: Validating AI Search Engine fallback parser...")
+    try:
+        search_engine_mod = import_reader_module("tools.search_engine")
+        SearchEngine = search_engine_mod.SearchEngine
+        se = SearchEngine()
+        intent = se._parse_intent_with_regex("Find PDFs from Google about internship")
+        
+        assert intent["filters"]["file_type"] == "pdf"
+        assert intent["filters"]["sender"] == "google"
+        assert "internship" in intent["search_terms"].lower()
+        print("  [PASS] Search query parsing and entity extraction successful.")
+    except Exception as e:
+        print(f"  [FAIL] Search engine parser verification failed: {e}")
+
     print("\n" + "=" * 80)
     print("                ALL LOCAL UNIT TESTS COMPLETED SUCCESSFULLY!                     ")
     print("=" * 80)

@@ -52,7 +52,8 @@ def _route_with_groq(instruction: str, api_key: str) -> Dict[str, Any]:
         "3. 'SUMMARIZE_EMAIL': User wants to fetch and summarize email content.\n"
         "4. 'DOWNLOAD_ATTACHMENTS': User wants to download files/attachments from emails.\n"
         "5. 'EXTRACT_FILE': User wants to extract text/data from files (PDF, Word, Excel, CSV, ZIP, Image OCR).\n"
-        "6. 'SUMMARIZE_FILE': User wants to summarize a file or set of files.\n\n"
+        "6. 'SUMMARIZE_FILE': User wants to summarize a file or set of files.\n"
+        "7. 'SEARCH_DOCUMENTS': User wants to search for, locate, find, or query files/documents/invoices/resumes using semantic natural language.\n\n"
         "Respond ONLY with a JSON object. No conversational text, no markdown block (e.g. ```json).\n"
         "The JSON object must have:\n"
         "- 'action': The selected action string (all caps, matching the list above).\n"
@@ -94,14 +95,19 @@ def _route_with_regex(instruction: str) -> Dict[str, Any]:
         "query_context": instruction
     }
 
-    # 1. Detect SEND_EMAIL
-    if any(k in inst_lower for k in ["send", "write", "draft", "mail to", "email to"]):
+    # 1. Detect SEARCH_DOCUMENTS (highest priority for "find", "search", "show invoice", etc.)
+    if any(k in inst_lower for k in ["find", "search", "show invoice", "show resume", "show document", "show file", "where is"]):
+        if not any(k in inst_lower for k in ["download", "save attachment"]):
+            action = "SEARCH_DOCUMENTS"
+
+    # 2. Detect SEND_EMAIL
+    elif any(k in inst_lower for k in ["send", "write", "draft", "mail to", "email to"]):
         action = "SEND_EMAIL"
         email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z0-9.-]+', instruction)
         if email_match:
             parameters["recipient"] = email_match.group(0)
 
-    # 2. Detect SUMMARIZE_EMAIL vs SUMMARIZE_FILE
+    # 3. Detect SUMMARIZE_EMAIL vs SUMMARIZE_FILE
     elif "summarize" in inst_lower or "summary" in inst_lower:
         if any(k in inst_lower for k in ["file", "pdf", "docx", "xlsx", "invoice", "resume", "document"]):
             action = "SUMMARIZE_FILE"
@@ -112,11 +118,11 @@ def _route_with_regex(instruction: str) -> Dict[str, Any]:
         else:
             action = "SUMMARIZE_EMAIL"
             
-    # 3. Detect DOWNLOAD_ATTACHMENTS
+    # 4. Detect DOWNLOAD_ATTACHMENTS
     elif any(k in inst_lower for k in ["download", "save attachment", "get attachment"]):
         action = "DOWNLOAD_ATTACHMENTS"
 
-    # 4. Detect EXTRACT_FILE
+    # 5. Detect EXTRACT_FILE
     elif any(k in inst_lower for k in ["extract", "read pdf", "read excel", "read docx", "ocr"]):
         action = "EXTRACT_FILE"
         file_match = re.search(r'\b([\w-]+\.(?:pdf|docx|doc|xlsx|xls|csv|png|jpeg|zip))\b', instruction, re.IGNORECASE)

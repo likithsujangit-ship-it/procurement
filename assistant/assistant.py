@@ -46,6 +46,8 @@ extract_attachment_content = reader_ext_mod.extract_attachment_content
 summarize_email = reader_sum_mod.summarize_email
 GroqClient = reader_groq_mod.GroqClient
 setup_logger = reader_utils_mod.setup_logger
+reader_search_mod = import_reader_module("tools.search_engine")
+SearchEngine = reader_search_mod.SearchEngine
 
 # Import router which is part of assistant
 from assistant.router import route_instruction
@@ -389,6 +391,34 @@ class UnifiedAssistant:
         except Exception as e:
             print(f"Summarizing file failed: {e}")
 
+    def handle_search_documents(self, user_query: str) -> None:
+        """Runs natural language search over the indexed documents."""
+        print(f"\n--> Running AI Semantic Search for: '{user_query}'...")
+        try:
+            search_engine = SearchEngine()
+            results = search_engine.search(user_query)
+            
+            if not results:
+                print("\nNo matching files found.")
+                return
+                
+            print(f"\nFound {len(results)} matching files\n")
+            for i, res in enumerate(results):
+                print(f"{i + 1}.")
+                print(f"📄 File Name:     {res['filename']}")
+                print(f"👤 Sender:        {res['sender']}")
+                print(f"🕒 Download Time: {res['downloaded_time']}")
+                print(f"📂 Folder:        {res['timestamp_folder']}")
+                print(f"📁 Full Path:     {res['relative_path']}")
+                print(f"📑 File Type:     {res['doc_type'].upper()}")
+                print(f"⭐ Match Score:    {res['score']}%")
+                print(f"Explanation:     {res['snippet']}")
+                print()
+                
+        except Exception as e:
+            logger.exception("Search execution failed.")
+            print(f"[System Error] Search failed: {e}")
+
 
 def main() -> None:
     """Main CLI run loop for Assistant."""
@@ -423,6 +453,8 @@ def main() -> None:
                 assistant.handle_extract_file(params)
             elif action == "SUMMARIZE_FILE":
                 assistant.handle_summarize_file(params)
+            elif action == "SEARCH_DOCUMENTS":
+                assistant.handle_search_documents(instruction)
             else:
                 print(f"Unknown action: '{action}'. I might not be able to handle that command yet.")
                 
