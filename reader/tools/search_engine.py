@@ -193,11 +193,11 @@ class SearchEngine:
         logger.debug("Running regex fallback query parser.")
         q_lower = user_query.lower()
         
-        # 1. Detect file type filters
+        # 1. Detect file type filters (supporting both dot prefix and plain extensions)
         file_type = None
-        extensions = ["pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "csv", "zip", "txt", "png", "jpeg", "jpg"]
+        extensions = ["pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "csv", "zip", "txt", "png", "jpeg", "jpg", "html"]
         for ext in extensions:
-            if f"{ext}s" in q_lower or f" {ext}" in q_lower:
+            if f".{ext}" in q_lower or f" {ext}s" in q_lower or f" {ext}" in q_lower or q_lower == ext or q_lower == f".{ext}":
                 file_type = ext
                 break
                 
@@ -245,6 +245,12 @@ class SearchEngine:
         intent = self.parse_query_intent(user_query)
         search_terms = intent.get("search_terms", "").lower()
         filters = intent.get("filters", {})
+        
+        # If the search term is just the file type extension itself, clear search_terms
+        if filters.get("file_type") and search_terms:
+            clean_terms = search_terms.lstrip(".").strip().lower()
+            if clean_terms == filters["file_type"] or clean_terms == f"{filters['file_type']}s":
+                search_terms = ""
         
         logger.info(f"Executing search: terms='{search_terms}' filters={filters}")
         
@@ -334,8 +340,10 @@ class SearchEngine:
             if any(term in doc["keywords"] for term in search_terms.split()):
                 score += 5.0
 
-            # Base score boost if query filters by sender and there are no search terms
+            # Base score boost if query filters by sender or file_type and there are no search terms
             if filters.get("sender") and not search_terms:
+                score += 50.0
+            if filters.get("file_type") and not search_terms:
                 score += 50.0
 
             if score > 0:
