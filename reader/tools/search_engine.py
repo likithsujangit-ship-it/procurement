@@ -253,8 +253,13 @@ class SearchEngine:
             # Apply Sender Filter
             if filters.get("sender"):
                 target_sender = filters["sender"].lower()
-                if target_sender not in doc["sender"].lower():
-                    continue
+                all_senders = [d["sender"].lower() for d in self.index.values()]
+                if target_sender in all_senders:
+                    if target_sender != doc["sender"].lower():
+                        continue
+                else:
+                    if target_sender not in doc["sender"].lower():
+                        continue
 
             score = 0.0
             filename_lower = doc["filename"].lower()
@@ -273,7 +278,9 @@ class SearchEngine:
                 if search_terms == sender_lower:
                     score += 35.0
                 elif search_terms in sender_lower:
-                    score += 25.0
+                    all_senders = [d["sender"].lower() for d in self.index.values()]
+                    if search_terms not in all_senders:
+                        score += 25.0
 
             # Rank 3: Text content matches (Weight 40%)
             if search_terms:
