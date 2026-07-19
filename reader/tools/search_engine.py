@@ -23,6 +23,28 @@ def normalize_text(text: str) -> str:
     return re.sub(r'\s+', ' ', t).strip().lower()
 
 
+def get_similarity(s1: str, s2: str) -> float:
+    """Calculates character bigram Jaccard similarity for typo-tolerance."""
+    s1, s2 = s1.lower().strip(), s2.lower().strip()
+    if not s1 or not s2:
+        return 0.0
+    if s1 == s2:
+        return 1.0
+        
+    bigrams1 = {s1[i:i+2] for i in range(len(s1)-1)}
+    bigrams2 = {s2[i:i+2] for i in range(len(s2)-1)}
+    
+    if not bigrams1 or not bigrams2:
+        c1, c2 = set(s1), set(s2)
+        intersection = len(c1.intersection(c2))
+        union = len(c1.union(c2))
+        return intersection / union if union > 0 else 0.0
+        
+    intersection = len(bigrams1.intersection(bigrams2))
+    union = len(bigrams1.union(bigrams2))
+    return intersection / union if union > 0 else 0.0
+
+
 class SearchEngine:
     """Orchestrates indexing of email files and execution of semantic search queries."""
 
@@ -290,16 +312,16 @@ class SearchEngine:
             if filters.get("file_type") and doc["doc_type"] != filters["file_type"]:
                 continue
 
-            # Apply Sender Filter
+            # Apply Sender Filter (supporting exact, substring, or fuzzy similarity match >= 0.4)
             if filters.get("sender"):
                 target_sender = filters["sender"].lower()
-                all_senders = [d["sender"].lower() for d in self.index.values()]
-                if target_sender in all_senders:
-                    if target_sender != doc["sender"].lower():
-                        continue
-                else:
-                    if target_sender not in doc["sender"].lower():
-                        continue
+                sender_name = doc["sender"].lower()
+                is_match = (target_sender == sender_name or 
+                            target_sender in sender_name or 
+                            sender_name in target_sender or
+                            get_similarity(target_sender, sender_name) >= 0.4)
+                if not is_match:
+                    continue
 
             score = 0.0
             filename_lower = doc["filename"].lower()
@@ -308,24 +330,30 @@ class SearchEngine:
 
             # Rank 1: Filename Match (up to 80 points)
             if normalized_search:
+                sim = get_similarity(normalized_search, stem_normalized)
                 if normalized_search == fn_normalized or normalized_search == stem_normalized:
                     score += 80.0
                 elif re.search(rf'\b{re.escape(normalized_search)}\b', fn_normalized):
                     score += 50.0
                 elif normalized_search in fn_normalized:
                     score += 20.0
+                elif sim >= 0.4:
+                    score += sim * 40.0
                 elif any(word in fn_normalized for word in normalized_search.split()):
                     matched_words = sum(1 for word in normalized_search.split() if word in fn_normalized)
                     score += matched_words * 10.0
 
             # Rank 2: Sender matches (up to 30 points)
             if search_terms:
+                sim = get_similarity(search_terms, sender_lower)
                 if search_terms == sender_lower:
                     score += 30.0
                 elif search_terms in sender_lower:
                     all_senders = [d["sender"].lower() for d in self.index.values()]
                     if search_terms not in all_senders:
                         score += 15.0
+                elif sim >= 0.4:
+                    score += sim * 20.0
 
             # Rank 3: Text content matches (up to 30 points)
             if search_terms:
