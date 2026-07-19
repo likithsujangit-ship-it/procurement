@@ -242,10 +242,23 @@ class SearchEngine:
         
         logger.info(f"Executing search: terms='{search_terms}' filters={filters}")
         
+        # Check if search_terms matches any filename or stem exactly
+        exact_file_matches = []
+        if search_terms:
+            for rel_path, doc in self.index.items():
+                fn_lower = doc["filename"].lower()
+                stem_lower = Path(fn_lower).stem.lower()
+                if search_terms == fn_lower or search_terms == stem_lower:
+                    exact_file_matches.append(rel_path)
+
         candidates: List[Tuple[str, Dict[str, Any], float]] = []
 
         # Filter and rank documents
         for rel_path, doc in self.index.items():
+            # If there is an exact filename/stem match in the index, restrict results only to those files
+            if exact_file_matches and rel_path not in exact_file_matches:
+                continue
+
             # Apply File Type Filter
             if filters.get("file_type") and doc["doc_type"] != filters["file_type"]:
                 continue
