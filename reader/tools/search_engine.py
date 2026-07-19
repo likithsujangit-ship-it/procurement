@@ -17,6 +17,12 @@ from tools.extractor import extract_attachment_content
 logger = setup_logger("search_engine")
 
 
+def normalize_text(text: str) -> str:
+    """Replaces underscores and dashes with spaces, collapsing duplicate spacing."""
+    t = text.replace("_", " ").replace("-", " ")
+    return re.sub(r'\s+', ' ', t).strip().lower()
+
+
 class SearchEngine:
     """Orchestrates indexing of email files and execution of semantic search queries."""
 
@@ -242,22 +248,31 @@ class SearchEngine:
         
         logger.info(f"Executing search: terms='{search_terms}' filters={filters}")
         
-        # Check if search_terms matches any filename or stem exactly
-        exact_file_matches = []
-        if search_terms:
-            for rel_path, doc in self.index.items():
-                fn_lower = doc["filename"].lower()
-                stem_lower = Path(fn_lower).stem.lower()
-                if search_terms == fn_lower or search_terms == stem_lower:
-                    exact_file_matches.append(rel_path)
+        # Normalize search terms
+        normalized_search = normalize_text(search_terms) if search_terms else ""
+
+        # Pre-scan for exact filename/stem matches in index database
+        has_exact_match = False
+        if normalized_search:
+            for doc in self.index.values():
+                fn_normalized = normalize_text(doc["filename"])
+                stem_normalized = normalize_text(Path(doc["filename"]).stem)
+                if normalized_search == fn_normalized or normalized_search == stem_normalized:
+                    has_exact_match = True
+                    break
 
         candidates: List[Tuple[str, Dict[str, Any], float]] = []
 
         # Filter and rank documents
         for rel_path, doc in self.index.items():
-            # If there is an exact filename/stem match in the index, restrict results only to those files
-            if exact_file_matches and rel_path not in exact_file_matches:
-                continue
+            fn_normalized = normalize_text(doc["filename"])
+            stem_normalized = normalize_text(Path(doc["filename"]).stem)
+
+            # If there is an exact filename/stem match in the index, we restrict results only to those exact or close name matches
+            if has_exact_match and normalized_search:
+                # Discard files where query is not an exact match or substring of the normalized filename
+                if normalized_search != fn_normalized and normalized_search != stem_normalized and normalized_search not in fn_normalized and fn_normalized not in normalized_search:
+                    continue
 
             # Apply File Type Filter
             if filters.get("file_type") and doc["doc_type"] != filters["file_type"]:
@@ -279,37 +294,37 @@ class SearchEngine:
             text_lower = doc["extracted_text"].lower()
             sender_lower = doc["sender"].lower()
 
-            # Rank 1: Filename matches (Weight 40%)
-            if search_terms:
-                if search_terms == filename_lower or search_terms == Path(filename_lower).stem:
-                    score += 40.0
-                elif search_terms in filename_lower:
-                    score += 20.0
+            # Rank 1: Filename Match (up to 80 points)
+            if normalized_search:
+                if normalized_search == fn_normalized or normalized_search == stem_normalized:
+                    score += 80.0
+                elif normalized_search in fn_normalized or fn_normalized in normalized_search:
+                    score += 50.0
+                elif any(word in fn_normalized for word in normalized_search.split()):
+                    matched_words = sum(1 for word in normalized_search.split() if word in fn_normalized)
+                    score += matched_words * 10.0
 
-            # Rank 2: Sender matches (Weight 35%)
+            # Rank 2: Sender matches (up to 30 points)
             if search_terms:
                 if search_terms == sender_lower:
-                    score += 35.0
+                    score += 30.0
                 elif search_terms in sender_lower:
                     all_senders = [d["sender"].lower() for d in self.index.values()]
                     if search_terms not in all_senders:
-                        score += 25.0
+                        score += 15.0
 
-            # Rank 3: Text content matches (Weight 40%)
+            # Rank 3: Text content matches (up to 30 points)
             if search_terms:
                 # Count frequency of search terms in text
                 term_count = text_lower.count(search_terms)
                 if term_count > 0:
-                    # Give points based on occurrence count, capped at 30
-                    score += min(term_count * 5.0, 30.0)
-                    
-                    # Boost if terms appear close to each other or as a exact phrase
+                    score += min(term_count * 3.0, 20.0)
                     if search_terms in text_lower:
                         score += 10.0
 
             # Rank 4: Keyword tag exact match boost
             if any(term in doc["keywords"] for term in search_terms.split()):
-                score += 10.0
+                score += 5.0
 
             # Base score boost if query filters by sender and there are no search terms
             if filters.get("sender") and not search_terms:
