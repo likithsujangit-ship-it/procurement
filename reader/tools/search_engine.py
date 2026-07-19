@@ -215,13 +215,13 @@ class SearchEngine:
         logger.debug("Running regex fallback query parser.")
         q_lower = user_query.lower()
         
-        # 1. Detect file type filters (supporting both dot prefix and plain extensions)
-        file_type = None
+        # 1. Detect file type filters (supporting multiple extensions)
+        found_types = []
         extensions = ["pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "csv", "zip", "txt", "png", "jpeg", "jpg", "html"]
         for ext in extensions:
             if f".{ext}" in q_lower or f" {ext}s" in q_lower or f" {ext}" in q_lower or q_lower == ext or q_lower == f".{ext}":
-                file_type = ext
-                break
+                found_types.append(ext)
+        file_type = ", ".join(found_types) if found_types else None
                 
         # 2. Detect sender filters (e.g. "from google", "by amazon")
         sender = None
@@ -270,8 +270,16 @@ class SearchEngine:
         
         # If the search term is just the file type extension itself, clear search_terms
         if filters.get("file_type") and search_terms:
+            raw_type = filters["file_type"]
+            target_types = []
+            if isinstance(raw_type, list):
+                target_types = [str(t).lstrip(".").strip().lower() for t in raw_type]
+            else:
+                split_types = re.split(r',|\band\b|\s+', str(raw_type))
+                target_types = [t.lstrip(".").strip().lower() for t in split_types if t.strip()]
+            
             clean_terms = search_terms.lstrip(".").strip().lower()
-            if clean_terms == filters["file_type"] or clean_terms == f"{filters['file_type']}s":
+            if clean_terms in target_types or any(clean_terms == f"{t}s" for t in target_types):
                 search_terms = ""
         
         logger.info(f"Executing search: terms='{search_terms}' filters={filters}")
@@ -308,9 +316,18 @@ class SearchEngine:
                     if not re.search(rf'\b{re.escape(normalized_search)}\b', fn_normalized):
                         continue
 
-            # Apply File Type Filter
-            if filters.get("file_type") and doc["doc_type"] != filters["file_type"]:
-                continue
+            # Apply File Type Filter (supporting strings, lists, and comma-separated extensions)
+            if filters.get("file_type"):
+                target_types = []
+                raw_type = filters["file_type"]
+                if isinstance(raw_type, list):
+                    target_types = [str(t).lstrip(".").strip().lower() for t in raw_type]
+                else:
+                    split_types = re.split(r',|\band\b|\s+', str(raw_type))
+                    target_types = [t.lstrip(".").strip().lower() for t in split_types if t.strip()]
+                    
+                if doc["doc_type"] not in target_types:
+                    continue
 
             # Apply Sender Filter (supporting exact, substring, or fuzzy similarity match >= 0.4)
             if filters.get("sender"):

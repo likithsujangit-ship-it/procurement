@@ -86,12 +86,19 @@ def _route_with_regex(instruction: str) -> Dict[str, Any]:
     logger.debug("Running regex fallback routing.")
     inst_lower = instruction.lower()
     
+    # Detect file type filters (supporting multiple extensions)
+    found_types = []
+    extensions = ["pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "csv", "zip", "txt", "png", "jpeg", "jpg", "html"]
+    for ext in extensions:
+        if f".{ext}" in inst_lower or f" {ext}s" in inst_lower or f" {ext}" in inst_lower or inst_lower == ext or inst_lower == f".{ext}":
+            found_types.append(ext)
+            
     action = "READ_EMAIL"
     parameters: Dict[str, Any] = {
         "recipient": None,
         "sender": None,
         "filename": None,
-        "file_type": None,
+        "file_type": ", ".join(found_types) if found_types else None,
         "query_context": instruction
     }
 
