@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "intent": {
+      "type": "string",
+      "enum": ["request_for_quotation", "purchase_order_issuance", "shipment_dispatch_notification", "invoice_only", "other"]
+    },
+    "document_type": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "buyer": { "type": "object" },
+    "supplier": { "type": "object" },
+    "rfq_number": { "type": ["string", "null"] },
+    "po_number": { "type": ["string", "null"] },
+    "invoice_number": { "type": ["string", "null"] },
+    "shipment_id": { "type": ["string", "null"] },
+    "items": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "commercial_terms": { "type": "object" },
+    "delivery_requirements": { "type": "object" },
+    "shipping_details": { "type": "object" },
+    "approval": { "type": "object" },
+    "attachments": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "missing_fields": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "conflicts": {
+      "type": "array"
+    },
+    "confidence_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "required": [
+    "intent", "document_type", "buyer", "supplier", "rfq_number", "po_number", "invoice_number", "shipment_id",
+    "items", "commercial_terms", "delivery_requirements", "shipping_details", "approval",
+    "attachments", "missing_fields", "conflicts", "confidence_score"
+  ]
+}
