@@ -34,6 +34,21 @@ def download_attachment(
     Returns:
         The Path to the saved file.
     """
+    # Check if file already exists in target_dir or sender's subfolders
+    save_path = target_dir / filename
+    sender_dir = target_dir.parent
+    existing_matches = [p for p in sender_dir.glob(f"**/{filename}") if p.is_file()] if sender_dir.exists() else []
+
+    if save_path.exists():
+        print(f"Attachment '{filename}' already exists.")
+        logger.info(f"Attachment '{filename}' already exists at {save_path.resolve()}. Skipping redownload.")
+        return save_path
+    elif existing_matches:
+        existing_path = existing_matches[0]
+        print(f"Attachment '{filename}' already exists.")
+        logger.info(f"Attachment '{filename}' already exists at {existing_path.resolve()}. Skipping redownload.")
+        return existing_path
+
     logger.info(f"Downloading attachment '{filename}' (ID: {attachment_id}) from message {message_id}...")
     
     try:
@@ -44,15 +59,6 @@ def download_attachment(
         
         file_data = base64.urlsafe_b64decode(attachment["data"].encode("utf-8"))
         
-        # Determine unique filename to avoid overwriting existing files
-        save_path = target_dir / filename
-        counter = 1
-        while save_path.exists():
-            stem = Path(filename).stem
-            suffix = Path(filename).suffix
-            save_path = target_dir / f"{stem}_{counter}{suffix}"
-            counter += 1
-
         # Write to disk
         with open(save_path, "wb") as f:
             f.write(file_data)
