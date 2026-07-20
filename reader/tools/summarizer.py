@@ -200,7 +200,7 @@ def save_extraction_outputs(
     else:
         dt = datetime.now()
 
-    time_folder_name = f"{dt.day:02d} ∕ {dt.month:02d} ∕ {dt.year} - ({dt.hour:02d}H : {dt.minute:02d}M : {dt.second:02d}S)"
+    time_folder_name = f"{dt.day:02d} ∕ {dt.month:02d} ∕ {dt.year} - ({dt.hour:02d}H ∶ {dt.minute:02d}M ∶ {dt.second:02d}S)"
 
     # 3. Create target output directory
     output_dir = Config.OUTPUTS_DIR / prefix / time_folder_name
