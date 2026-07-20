@@ -5,7 +5,11 @@ contents into structured reports with action items, tasks, and priorities.
 """
 
 import json
-from typing import Dict, Any, List
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, List, Tuple
+from config import Config
 from tools.utils import setup_logger
 from tools.groq_client import GroqClient
 
@@ -163,3 +167,125 @@ def _summarize_with_rules(
         },
         "attachment_summary": att_summaries
     }
+
+
+def save_extraction_outputs(
+    email_data: Dict[str, Any],
+    summary: Dict[str, Any],
+    attachment_contents: Dict[str, str],
+    structured_extractions: Dict[str, Any] = None
+) -> Tuple[Path, Path]:
+    """
+    Saves summary.txt and extracted_data.json under:
+    reader/outputs/<sender_prefix>/<DD-MM-YYYY-(HH_MM_SS_fff)>/
+    and updates root reader/outputs/ summary files.
+    """
+    # 1. Parse sender email prefix
+    sender_raw = email_data.get("sender", "")
+    email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
+    email = email_match.group(0) if email_match else sender_raw.strip().lower()
+    prefix = email.split("@")[0].strip() if "@" in email else email
+    prefix = "".join(c for c in prefix if c.isalnum() or c in ("-", "_", "."))
+    if not prefix:
+        prefix = "unknown"
+
+    # 2. Parse timestamp folder name matching download format
+    internal_date_ms = email_data.get("internalDate")
+    if internal_date_ms:
+        try:
+            dt = datetime.fromtimestamp(int(internal_date_ms) / 1000.0)
+        except Exception:
+            dt = datetime.now()
+    else:
+        dt = datetime.now()
+
+    time_folder_name = dt.strftime("%d-%m-%Y-(%H_%M_%S_%f)")[:-3]
+
+    # 3. Create target output directory
+    output_dir = Config.OUTPUTS_DIR / prefix / time_folder_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 4. Formulate summary.txt text
+    txt_lines = [
+        "=" * 80,
+        "                                EMAIL SUMMARY REPORT                            ",
+        "=" * 80,
+        f"Subject:        {summary.get('subject', 'N/A')}",
+        f"From:           {summary.get('sender', 'N/A')}",
+        f"Date:           {summary.get('date', 'N/A')}",
+        f"Priority:       {summary.get('priority', 'N/A')}",
+        "-" * 80,
+        "SUMMARY",
+        "-" * 80,
+        f"{summary.get('summary', 'No summary provided.')}",
+        "",
+        "-" * 80,
+        "ACTION ITEMS",
+        "-" * 80,
+    ]
+    for item in summary.get("action_items", []):
+        txt_lines.append(f"  - {item}")
+
+    txt_lines.extend([
+        "",
+        "-" * 80,
+        "PENDING TASKS",
+        "-" * 80,
+    ])
+    for task in summary.get("pending_tasks", []):
+        txt_lines.append(f"  - {task}")
+
+    txt_lines.extend([
+        "",
+        "-" * 80,
+        "MEETING DATES & IMPORTANT LINKS",
+        "-" * 80,
+        f"Meeting Dates:  {', '.join(summary.get('meeting_dates', [])) or 'None'}",
+        f"Important Links:{', '.join(summary.get('important_links', [])) or 'None'}",
+        "",
+        "-" * 80,
+        "ATTACHMENTS & EXTRACTIONS",
+        "-" * 80,
+    ])
+    for att in summary.get("attachment_summary", []):
+        fn = att.get("filename", "")
+        txt_lines.append(f"File: {fn} ({att.get('size_bytes', 0)} bytes)")
+        txt_lines.append(f"Snippet: {att.get('content_summary', '')}")
+        txt_lines.append("-")
+
+    txt_lines.append("=" * 80)
+    summary_txt_content = "\n".join(txt_lines)
+
+    # Write summary.txt
+    txt_path = output_dir / "summary.txt"
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(summary_txt_content)
+
+    # 5. Formulate extracted_data.json
+    full_json_payload = {
+        "email_metadata": {
+            "id": email_data.get("id"),
+            "sender": email_data.get("sender"),
+            "subject": email_data.get("subject"),
+            "date": email_data.get("date"),
+            "internal_date_ms": email_data.get("internalDate")
+        },
+        "summary": summary,
+        "raw_attachment_contents": attachment_contents,
+        "structured_extractions": structured_extractions or {}
+    }
+
+    json_path = output_dir / "extracted_data.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(full_json_payload, f, indent=2, ensure_ascii=False)
+
+    # Also update root output files for backward compatibility
+    root_txt_path = Config.OUTPUTS_DIR / "summary.txt"
+    root_json_path = Config.OUTPUTS_DIR / "summary.json"
+    with open(root_txt_path, "w", encoding="utf-8") as f:
+        f.write(summary_txt_content)
+    with open(root_json_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+
+    logger.info(f"Saved extraction outputs to: {output_dir}")
+    return txt_path, json_path

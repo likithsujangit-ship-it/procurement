@@ -44,6 +44,7 @@ download_all_attachments = reader_dl_mod.download_all_attachments
 extract_resources = reader_links_mod.extract_resources
 extract_attachment_content = reader_ext_mod.extract_attachment_content
 summarize_email = reader_sum_mod.summarize_email
+save_extraction_outputs = reader_sum_mod.save_extraction_outputs
 GroqClient = reader_groq_mod.GroqClient
 setup_logger = reader_utils_mod.setup_logger
 reader_search_mod = import_reader_module("tools.search_engine")
@@ -247,6 +248,7 @@ class UnifiedAssistant:
                     
                 resources = extract_resources(email["body"] + "\n" + email["html_body"])
                 summary = summarize_email(email, resources, attachment_contents)
+                save_extraction_outputs(email, summary, attachment_contents)
                 
                 # Display report
                 print("\n" + "=" * 30 + " AI EMAIL REPORT " + "=" * 30)
@@ -461,7 +463,8 @@ class UnifiedAssistant:
                 metadata = {
                     "subject": email.get("subject", ""),
                     "sender": email.get("sender", ""),
-                    "date": email.get("date", "")
+                    "date": email.get("date", ""),
+                    "internal_date_ms": email.get("internalDate", "")
                 }
                 body = email.get("body", "") + "\n" + email.get("html_body", "")
                 
@@ -496,7 +499,7 @@ class UnifiedAssistant:
                         short_warn = " ".join(words[:4]) + "..." if len(words) > 4 else warn
                         print(f"             ⚠ {short_warn}")
                     
-                print(f"Extraction JSON and summary.txt saved in outputs/intelligent_extraction/<sender>/<datetime>/")
+                print(f"Extraction JSON (extracted_data.json) and summary.txt saved under reader/outputs/<sender_prefix>/<timestamp>/")
                 print("=" * 81 + "\n")
             
         except GmailAuthError as auth_err:

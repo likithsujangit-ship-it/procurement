@@ -130,13 +130,15 @@ def _route_with_regex(instruction: str) -> Dict[str, Any]:
     elif any(k in inst_lower for k in ["download", "save attachment", "get attachment"]):
         action = "DOWNLOAD_ATTACHMENTS"
 
-    # 5. Detect EXTRACT_FILE
+    # 5. Detect EXTRACT_FILE vs INTELLIGENT_EXTRACT
     elif any(k in inst_lower for k in ["extract", "read pdf", "read excel", "read docx", "ocr"]):
-        if any(k in inst_lower for k in ["intelligent", "structured", "commercial", "logistics", "rfq", "json"]):
+        file_match = re.search(r'\b([\w-]+\.(?:pdf|docx|doc|xlsx|xls|csv|png|jpeg|zip))\b', instruction, re.IGNORECASE)
+        if any(k in inst_lower for k in ["mail", "email", "inbox", "this mail", "from"]) or not file_match:
+            action = "INTELLIGENT_EXTRACT"
+        elif any(k in inst_lower for k in ["intelligent", "structured", "commercial", "logistics", "rfq", "json"]):
             action = "INTELLIGENT_EXTRACT"
         else:
             action = "EXTRACT_FILE"
-        file_match = re.search(r'\b([\w-]+\.(?:pdf|docx|doc|xlsx|xls|csv|png|jpeg|zip))\b', instruction, re.IGNORECASE)
         if file_match:
             parameters["filename"] = file_match.group(1)
 

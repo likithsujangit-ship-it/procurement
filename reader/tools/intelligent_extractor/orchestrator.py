@@ -63,35 +63,47 @@ class PipelineOrchestrator:
         filename = f"{doc_type}_{clean_user}_{clean_product}.json".lower()
         
         # Save to outputs
-        # 1. Parse sender for username folder
+        # 1. Parse sender for username folder using standard format
         sender_raw = email_metadata.get("sender", "unknown_sender")
-        # Extract email or name
         import re
         from datetime import datetime
-        email_match = re.search(r'<([^>]+)>', sender_raw)
-        sender_name = email_match.group(1).split('@')[0] if email_match else sender_raw.split('@')[0]
-        clean_sender = "".join([c if c.isalnum() else "_" for c in sender_name])
+        email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
+        email = email_match.group(0) if email_match else sender_raw.strip().lower()
+        prefix = email.split("@")[0].strip() if "@" in email else email
+        prefix = "".join(c for c in prefix if c.isalnum() or c in ("-", "_", "."))
+        if not prefix:
+            prefix = "unknown"
         
         # 2. Parse date for time folder: DD-MM-YYYY-(HH_MM_SS_fff)
+        internal_date_ms = email_metadata.get("internal_date_ms") or email_metadata.get("internalDate")
         date_raw = email_metadata.get("date", "")
-        folder_time = "unknown_date"
-        if date_raw:
+        if internal_date_ms:
             try:
-                # Typical email date format: "Mon, 20 Jul 2026 12:34:56 +0000" or similar
+                dt = datetime.fromtimestamp(int(internal_date_ms) / 1000.0)
+            except Exception:
+                dt = datetime.now()
+        elif date_raw:
+            try:
                 from email.utils import parsedate_to_datetime
                 dt = parsedate_to_datetime(date_raw)
-                folder_time = dt.strftime("%d-%m-%Y-(%H_%M_%S_000)")
             except Exception:
-                # Fallback if unparseable
-                folder_time = "".join([c if c.isalnum() else "_" for c in date_raw])[:25]
+                dt = datetime.now()
+        else:
+            dt = datetime.now()
+
+        time_folder_name = dt.strftime("%d-%m-%Y-(%H_%M_%S_%f)")[:-3]
         
-        output_dir = Config.OUTPUTS_DIR / "intelligent_extraction" / clean_sender / folder_time
+        output_dir = Config.OUTPUTS_DIR / prefix / time_folder_name
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # 3. Save JSON
-        output_path = output_dir / filename
+        output_path = output_dir / "extracted_data.json"
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(result_json, f, indent=4)
+            json.dump(result_json, f, indent=4, ensure_ascii=False)
+            
+        specific_json_path = output_dir / filename
+        with open(specific_json_path, "w", encoding="utf-8") as f:
+            json.dump(result_json, f, indent=4, ensure_ascii=False)
             
         # 4. Generate and save summary.txt
         logger.info("Generating summary of the mail context...")
@@ -105,7 +117,6 @@ class PipelineOrchestrator:
             summary_text = f"Failed to generate summary. Raw email body:\n\n{email_body}"
             
         summary_path = output_dir / "summary.txt"
-        output_dir.mkdir(parents=True, exist_ok=True)
         with open(summary_path, "w", encoding="utf-8") as f:
             f.write(f"Subject: {email_metadata.get('subject', 'No Subject')}\n")
             f.write(f"Sender: {sender_raw}\n")
