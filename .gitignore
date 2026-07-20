@@ -1,0 +1,41 @@
+# ==============================================================================
+# EMAIL_AI Git Ignore Configuration
+# ==============================================================================
+
+# Environment files containing sensitive API keys & SMTP passwords
+.env
+*.env
+
+# Google Cloud OAuth client keys & access tokens
+credentials.json
+token.json
+
+# Local Python virtual environment files
+venv/
+ENV/
+env/
+
+# Python cache directories and bytecode files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+.ipynb_checkpoints/
+
+# Application logs
+logs/
+*.log
+sender/logs/
+reader/logs/
+
+# Test outputs & attachments (to protect privacy and keep repo size small)
+sender/files/*
+!sender/files/.gitkeep
+reader/files/
+sender/outputs/
+reader/outputs/
+outputs/
