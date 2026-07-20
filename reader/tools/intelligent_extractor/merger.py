@@ -3,9 +3,9 @@ from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
-def truncate_text(text: str, max_tokens: int = 40000) -> str:
+def truncate_text(text: str, max_tokens: int = 4000) -> str:
     """
-    Very basic character-based truncation approximation.
+    Character-based truncation approximation ensuring total prompt fits well within Groq TPM limits.
     Assuming ~4 chars per token.
     If text exceeds max, keep the beginning and the end.
     """
@@ -13,9 +13,9 @@ def truncate_text(text: str, max_tokens: int = 40000) -> str:
     if len(text) <= max_chars:
         return text
         
-    logger.warning("Context too large, truncating middle portion.")
+    logger.warning(f"Context size ({len(text)} chars) exceeds safe LLM limit ({max_chars} chars), truncating middle portion.")
     half = max_chars // 2
-    return text[:half] + "\n\n...[TRUNCATED]...\n\n" + text[-half:]
+    return text[:half] + "\n\n...[TRUNCATED MIDDLE CONTEXT]...\n\n" + text[-half:]
 
 def merge_context(email_metadata: Dict[str, Any], email_body: str, attachments: List[Dict[str, str]]) -> str:
     """

@@ -70,16 +70,33 @@ class GroqClient:
             return content
         except Exception as e:
             error_msg = str(e).lower()
-            if "rate limit reached" in error_msg or "rate_limit_exceeded" in error_msg:
-                if model == "llama-3.3-70b-versatile":
-                    logger.warning("Rate limit hit for llama-3.3-70b-versatile. Falling back to llama-3.1-8b-instant...")
-                    kwargs["model"] = "llama-3.1-8b-instant"
+            if "rate limit reached" in error_msg or "rate_limit_exceeded" in error_msg or "413" in error_msg or "429" in error_msg:
+                import time
+                logger.warning(f"Rate limit / token limit hit ({e}). Waiting 2s before fallback...")
+                time.sleep(2)
+                
+                # Truncate user prompt to safe size (12,000 characters max ~ 3,000 tokens)
+                truncated_user_prompt = user_prompt
+                if len(user_prompt) > 12000:
+                    half = 6000
+                    truncated_user_prompt = user_prompt[:half] + "\n\n...[TRUNCATED FOR FALLBACK MODEL]...\n\n" + user_prompt[-half:]
+
+                for fallback_model in ["llama-3.1-8b-instant", "mixtral-8x7b-32768", "llama3-70b-8192"]:
+                    if fallback_model == model:
+                        continue
                     try:
+                        logger.info(f"Retrying with fallback model {fallback_model}...")
+                        kwargs["model"] = fallback_model
+                        kwargs["messages"] = [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": truncated_user_prompt}
+                        ]
                         response = self.client.chat.completions.create(**kwargs)
                         content = response.choices[0].message.content.strip()
                         return content
                     except Exception as fallback_e:
-                        logger.error(f"Fallback model also failed: {fallback_e}")
-                        raise fallback_e
+                        logger.warning(f"Fallback {fallback_model} failed: {fallback_e}")
+                        time.sleep(1)
+                        
             logger.error(f"Groq API call failed: {e}")
             raise

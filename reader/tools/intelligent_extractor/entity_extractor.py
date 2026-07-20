@@ -60,5 +60,10 @@ class EntityExtractor:
                 if attempt >= self.max_retries:
                     raise SchemaValidationError(f"Extraction failed after {self.max_retries} attempts. Last error: {e}")
                 
-                # Append error to prompt for next attempt
-                current_prompt += f"\n\nYOUR PREVIOUS RESPONSE CAUSED THIS ERROR: {e}\nPLEASE FIX THE JSON FORMAT AND TRY AGAIN."
+                import time
+                time.sleep(3)
+                # Only append error if it was a JSON decoding issue, not a network/rate limit error
+                if "json" in str(e).lower() or "decode" in str(e).lower():
+                    current_prompt = prompt + f"\n\nPLEASE FIX JSON DECODING ERROR: {e}"
+                else:
+                    current_prompt = prompt
