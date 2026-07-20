@@ -79,7 +79,16 @@ def _route_with_groq(instruction: str, api_key: str) -> Dict[str, Any]:
     raw_content = response.choices[0].message.content.strip()
     logger.debug(f"Router response: {raw_content}")
     
-    return json.loads(raw_content)
+    result = json.loads(raw_content)
+    
+    # Priority Override: If instruction contains 'extract' and email/sender context or lacks filename, force INTELLIGENT_EXTRACT
+    inst_lower = instruction.lower()
+    if "extract" in inst_lower:
+        file_match = re.search(r'\b([\w-]+\.(?:pdf|docx|doc|xlsx|xls|csv|png|jpeg|zip))\b', instruction, re.IGNORECASE)
+        if not file_match or any(k in inst_lower for k in ["from", "mail", "email", "latest", "inbox"]):
+            result["action"] = "INTELLIGENT_EXTRACT"
+            
+    return result
 
 
 def _route_with_regex(instruction: str) -> Dict[str, Any]:
