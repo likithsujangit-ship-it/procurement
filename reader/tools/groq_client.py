@@ -47,32 +47,15 @@ class GroqClient:
         Returns:
             The string content of the response.
         """
-        # Try Gemini API if GEMINI_API_KEY is configured
-        if Config.GEMINI_API_KEY and Config.GEMINI_API_KEY != "AQ.Ab8RN6IQfWGmfP1Aml7Gamx71qG9zElsY6UMU0QiMS8FViVJeg_placeholder":
-            try:
-                import urllib.request
-                import json
-                gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={Config.GEMINI_API_KEY}"
-                payload = {
-                    "contents": [{
-                        "parts": [{"text": f"{system_prompt}\n\nUser Input:\n{user_prompt}"}]
-                    }]
-                }
-                if response_json:
-                    payload["generationConfig"] = {"responseMimeType": "application/json"}
-                
-                req = urllib.request.Request(gemini_url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    res_data = json.loads(resp.read().decode("utf-8"))
-                    text = res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    if text:
-                        logger.info("Completion generated successfully via Gemini 2.0 Flash API.")
-                        return text
-            except Exception as gemini_err:
-                logger.warning(f"Gemini API call returned quota limit/error ({gemini_err}). Falling back to Groq Llama 3.3 70B...")
+        # # Gemini API Integration (Disabled/Commented Out - Using Groq)
+        # if Config.GEMINI_API_KEY:
+        #     try:
+        #         ...
+        #     except Exception as gemini_err:
+        #         ...
 
         if not self.is_available():
-            raise ValueError("Groq client is not initialized. Please configure GROQ_API_KEY or GEMINI_API_KEY.")
+            raise ValueError("Groq client is not initialized. Please configure GROQ_API_KEY.")
 
         logger.debug(f"Calling Groq model={model} with JSON mode={response_json}")
         
