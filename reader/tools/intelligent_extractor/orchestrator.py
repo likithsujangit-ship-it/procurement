@@ -143,10 +143,6 @@ class PipelineOrchestrator:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(result_json, f, indent=4, ensure_ascii=False)
             
-        specific_json_path = output_dir / filename
-        with open(specific_json_path, "w", encoding="utf-8") as f:
-            json.dump(result_json, f, indent=4, ensure_ascii=False)
-            
         # 4. Generate and save summary.txt
         logger.info("Generating summary of the mail context...")
         try:
