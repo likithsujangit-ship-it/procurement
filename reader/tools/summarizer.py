@@ -261,19 +261,51 @@ def save_extraction_outputs(
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(summary_txt_content)
 
-    # 5. Formulate extracted_data.json
-    full_json_payload = {
-        "email_metadata": {
-            "id": email_data.get("id"),
-            "sender": email_data.get("sender"),
-            "subject": email_data.get("subject"),
-            "date": email_data.get("date"),
-            "internal_date_ms": email_data.get("internalDate")
-        },
-        "summary": summary,
-        "raw_attachment_contents": attachment_contents,
-        "structured_extractions": structured_extractions or {}
-    }
+    # 5. Formulate flat structured JSON payload matching exact master schema
+    if structured_extractions and isinstance(structured_extractions, dict) and "intent" in structured_extractions:
+        full_json_payload = structured_extractions
+    else:
+        att_list = []
+        for fn, content in attachment_contents.items():
+            ext = Path(fn).suffix.lower()
+            mime = "application/pdf" if ext == ".pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if ext == ".xlsx" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if ext == ".docx" else "application/octet-stream"
+            att_list.append({
+                "filename": fn,
+                "type": mime,
+                "extracted": bool(content.strip())
+            })
+            
+        full_json_payload = {
+            "intent": summary.get("intent", "request_for_quotation"),
+            "document_type": summary.get("document_type", ["RFQ"]),
+            "buyer": summary.get("buyer", {
+                "company_name": summary.get("sender", "N/A"),
+                "address": "N/A",
+                "gstin": "N/A",
+                "contact_name": summary.get("sender", "N/A"),
+                "contact_title": "N/A",
+                "email": summary.get("sender", "N/A"),
+                "phone": "N/A"
+            }),
+            "supplier": summary.get("supplier", {
+                "company_name": "N/A",
+                "address": "N/A",
+                "contact_name": "N/A",
+                "contact_title": "N/A",
+                "email": "N/A"
+            }),
+            "rfq_number": summary.get("rfq_number", "N/A"),
+            "rfq_issue_date": email_data.get("date", "N/A"),
+            "quotation_due_date": summary.get("due_date", "N/A"),
+            "items": summary.get("items", []),
+            "commercial_terms": summary.get("commercial_terms", {}),
+            "delivery_requirements": summary.get("delivery_requirements", {}),
+            "shipping_details": summary.get("shipping_details", {}),
+            "attachments": att_list,
+            "missing_fields": summary.get("missing_fields", []),
+            "conflicts": summary.get("conflicts", []),
+            "confidence_score": summary.get("confidence_score", 0.95)
+        }
 
     json_path = output_dir / f"{prefix}_extracted_data.json"
     with open(json_path, "w", encoding="utf-8") as f:
