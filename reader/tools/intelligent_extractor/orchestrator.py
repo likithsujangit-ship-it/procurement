@@ -97,11 +97,19 @@ class PipelineOrchestrator:
         result_json = audit_procurement_completeness(result_json)
             
         # Determine dynamic filename as per user request
-        doc_type = result_json.get("intent", classification.intent)
-        user_name = result_json.get("buyer", {}).get("contact_name", "") or result_json.get("supplier", {}).get("contact_name", "unknown_user")
+        doc_type = result_json.get("intent") or classification.intent or "other"
+        buyer_obj = result_json.get("buyer") if isinstance(result_json.get("buyer"), dict) else {}
+        supplier_obj = result_json.get("supplier") if isinstance(result_json.get("supplier"), dict) else {}
+        
+        user_name = buyer_obj.get("contact_name") or buyer_obj.get("company_name") or supplier_obj.get("contact_name") or supplier_obj.get("company_name") or "unknown_user"
+        if not isinstance(user_name, str):
+            user_name = str(user_name or "unknown_user")
+            
+        items_list = result_json.get("items") if isinstance(result_json.get("items"), list) else []
         product = "product"
-        if result_json.get("items") and len(result_json.get("items")) > 0:
-            product = result_json["items"][0].get("description", result_json["items"][0].get("part_number", "product"))
+        if items_list and len(items_list) > 0 and isinstance(items_list[0], dict):
+            p_desc = items_list[0].get("description") or items_list[0].get("part_number") or "product"
+            product = str(p_desc) if p_desc else "product"
             
         # Clean up string for filename
         clean_user = "".join([c if c.isalnum() else "_" for c in user_name])

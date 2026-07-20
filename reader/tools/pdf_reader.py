@@ -72,23 +72,37 @@ def extract_pdf_text(filepath: Path) -> str:
         try:
             import fitz
             import pytesseract
+            import shutil
+            import os
             from PIL import Image
             import io
 
-            doc = fitz.open(filepath)
-            for i, page in enumerate(doc):
-                pix = page.get_pixmap(dpi=150)
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
-                ocr_text = pytesseract.image_to_string(img).strip()
-                if ocr_text:
-                    ocr_parts.append(f"--- Page {i + 1} (OCR) ---\n{ocr_text}")
-            doc.close()
-            
-            if ocr_parts:
-                logger.info(f"Successfully extracted text via Tesseract OCR for scanned PDF: {filepath.name}")
-                return "\n\n".join(ocr_parts)
+            # Auto-detect Tesseract binary on macOS/Linux
+            tesseract_path = shutil.which("tesseract") or os.environ.get("TESSERACT_PATH")
+            if not tesseract_path:
+                for candidate in ["/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract", "/usr/bin/tesseract"]:
+                    if os.path.exists(candidate):
+                        tesseract_path = candidate
+                        break
+
+            if tesseract_path:
+                pytesseract.pytesseract.tesseract_cmd = tesseract_path
+                doc = fitz.open(filepath)
+                for i, page in enumerate(doc):
+                    pix = page.get_pixmap(dpi=150)
+                    img = Image.open(io.BytesIO(pix.tobytes("png")))
+                    ocr_text = pytesseract.image_to_string(img).strip()
+                    if ocr_text:
+                        ocr_parts.append(f"--- Page {i + 1} (OCR) ---\n{ocr_text}")
+                doc.close()
+                
+                if ocr_parts:
+                    logger.info(f"Successfully extracted text via Tesseract OCR for scanned PDF: {filepath.name}")
+                    return "\n\n".join(ocr_parts)
+            else:
+                logger.warning(f"Tesseract OCR binary not found in system PATH. To enable OCR for scanned PDFs, install Tesseract (e.g. 'brew install tesseract').")
         except Exception as ocr_err:
-            logger.error(f"OCR fallback failed for {filepath.name}: {ocr_err}")
+            logger.warning(f"OCR fallback failed for {filepath.name}: {ocr_err}")
 
     if not text_parts:
         logger.warning(f"No text extracted from PDF: {filepath.name}.")
