@@ -92,9 +92,9 @@ class PipelineOrchestrator:
         if "confidence_score" not in result_json:
             result_json["confidence_score"] = classification.confidence
 
-        # 5. Run Procurement Completeness Audit
-        from tools.intelligent_extractor.validate_procurement import audit_procurement_completeness
-        result_json = audit_procurement_completeness(result_json)
+        # 5. Run Multi-Stage Procurement Completeness Audit
+        from tools.intelligent_extractor.stage_validator import validate_multi_stage_procurement
+        result_json = validate_multi_stage_procurement(result_json, email_body, processed_attachments)
             
         # Determine dynamic filename as per user request
         doc_type = result_json.get("intent") or classification.intent or "other"
@@ -128,7 +128,7 @@ class PipelineOrchestrator:
         if not prefix:
             prefix = "unknown"
         
-        # 2. Parse date for time folder: DD-MM-YYYY-(HH_MM_SS_fff)
+        # 2. Parse date for time folder
         internal_date_ms = email_metadata.get("internal_date_ms") or email_metadata.get("internalDate")
         date_raw = email_metadata.get("date", "")
         if internal_date_ms:
@@ -168,32 +168,58 @@ class PipelineOrchestrator:
             
         summary_path = output_dir / f"{prefix}_summary.txt"
         
-        # Format PROCUREMENT VALIDATION section for summary.txt
-        proc_status = result_json.get("procurement_status", {})
-        proc_val = result_json.get("validation", {})
-        proc_missing = result_json.get("missing_procurement_information", [])
-        proc_rec = result_json.get("recommendation", "")
+        # Build stage-wise text sections for summary.txt
+        stages_list = result_json.get("stages", [])
+        proc_process = result_json.get("procurement_process", {})
         
-        missing_text_lines = []
-        if proc_missing:
-            for item in proc_missing:
-                missing_text_lines.append(f"• {item.get('field', 'Field')}")
-        else:
-            missing_text_lines.append("None")
-            
         with open(summary_path, "w", encoding="utf-8") as f:
             f.write(f"Subject: {email_metadata.get('subject', 'No Subject')}\n")
             f.write(f"Sender: {sender_raw}\n")
             f.write(f"Date: {date_raw}\n\n")
             f.write("--- SUMMARY ---\n")
             f.write(f"{summary_text}\n\n")
-            f.write("================ PROCUREMENT VALIDATION ================\n\n")
-            f.write(f"Procurement Status: {proc_status.get('status', 'N/A')}\n\n")
-            f.write(f"Completeness Score: {proc_status.get('completeness_score', 0)}%\n\n")
-            f.write(f"Validation: {proc_val.get('status', 'N/A')}\n\n")
-            f.write("Missing Procurement Information:\n")
-            f.write("\n".join(missing_text_lines) + "\n\n")
-            f.write(f"Recommendation:\n{proc_rec}\n")
+            
+            for stage in stages_list:
+                s_name = stage.get("stage", "STAGE").upper()
+                s_val = "✅ PASSED" if stage.get("validation") == "PASSED" else "❌ FAILED"
+                f.write(f"================ {s_name} VALIDATION ================\n\n")
+                f.write(f"Document Type : {stage.get('stage')}\n\n")
+                f.write(f"Buyer : {stage.get('buyer', 'Not Specified')}\n\n")
+                f.write(f"Supplier : {stage.get('supplier', 'Not Specified')}\n\n")
+                f.write(f"{stage.get('stage')} Completeness Score : {stage.get('completeness_score', 0)}%\n\n")
+                f.write(f"Validation : {s_val}\n\n")
+                
+                f.write("Mandatory Fields Found:\n")
+                m_found = stage.get("mandatory_fields_found", [])
+                if m_found:
+                    for mf in m_found:
+                        f.write(f"• {mf}\n")
+                else:
+                    f.write("None\n")
+                f.write("\n")
+                
+                f.write("Missing Mandatory Information:\n")
+                m_miss = stage.get("missing_mandatory_fields", [])
+                if m_miss:
+                    for mm in m_miss:
+                        f.write(f"• {mm}\n")
+                else:
+                    f.write("None\n")
+                f.write("\n")
+                
+                f.write(f"Recommendation:\n{stage.get('recommendation', '')}\n\n")
+                f.write("-" * 50 + "\n\n")
+
+            f.write("================ PROCUREMENT PROCESS SUMMARY ================\n\n")
+            for stage in stages_list:
+                s_icon = "✅" if stage.get("validation") == "PASSED" else "❌"
+                f.write(f"{stage.get('stage', 'Stage'):<12}: {s_icon} {stage.get('completeness_score', 0)}%\n")
+            for ms in proc_process.get("missing_stages", []):
+                f.write(f"{ms:<12}: ❌ Missing\n")
+            f.write("\n")
+            f.write(f"Overall Procurement Completeness : {proc_process.get('overall_completeness', 0)}%\n\n")
+            f.write(f"Overall Validation : {proc_process.get('overall_validation', 'FAILED')}\n\n")
+            f.write(f"Reason:\n{proc_process.get('reason', '')}\n")
             
         logger.info(f"Pipeline completed successfully. Saved JSON and summary to {output_dir}")
         return result_json

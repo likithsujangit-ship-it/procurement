@@ -484,57 +484,81 @@ class UnifiedAssistant:
                 orchestrator = PipelineOrchestrator()
                 result = orchestrator.run(metadata, body, paths)
                 
-                # Extract procurement status details
-                proc_status = result.get("procurement_status", {})
-                proc_val = result.get("validation", {})
-                proc_missing = result.get("missing_procurement_information", [])
-                proc_rec = result.get("recommendation", "")
-                conflicts_count = len(result.get("conflicts", []))
-                
-                # Format Document Type nicely (e.g. purchase_order_issuance -> Purchase Order)
-                intent_raw = result.get("intent", "other")
-                doc_type_display = intent_raw.replace("_issuance", "").replace("_only", "").replace("_", " ").title()
-                if result.get("document_type") and len(result["document_type"]) > 0:
-                    doc_type_display = result["document_type"][0].replace("_", " ").title()
+                # Format Multi-Stage Procurement Validation Output
+                stages_list = result.get("stages", [])
+                proc_process = result.get("procurement_process", {})
 
-                buyer_name = result.get("buyer", {}).get("company_name") or result.get("buyer", {}).get("contact_name") or "Not Specified"
-                supplier_name = result.get("supplier", {}).get("company_name") or result.get("supplier", {}).get("contact_name") or "Not Specified"
-                status_str = proc_status.get("status", "INCOMPLETE")
-                score_val = proc_status.get("completeness_score", 0)
-                val_status = proc_val.get("status", "FAILED")
-                val_display = "✅ PASSED" if val_status == "PASSED" else "❌ FAILED"
+                print()
+                for stage in stages_list:
+                    s_name = stage.get("stage", "STAGE").upper()
+                    s_val = "✅ PASSED" if stage.get("validation") == "PASSED" else "❌ FAILED"
+                    
+                    print("=" * 16 + f" {s_name} VALIDATION " + "=" * 16 + "\n")
+                    print(f"Document Type : {stage.get('stage')}\n")
+                    print(f"Buyer : {stage.get('buyer', 'Not Specified')}\n")
+                    print(f"Supplier : {stage.get('supplier', 'Not Specified')}\n")
+                    print(f"{stage.get('stage')} Completeness Score : {stage.get('completeness_score', 0)}%\n")
+                    print(f"Validation : {s_val}\n")
+                    
+                    m_found = stage.get("mandatory_fields_found", [])
+                    if m_found:
+                        print("Mandatory Fields Found")
+                        for mf in m_found:
+                            print(f"• {mf}")
+                        print()
+                        
+                    m_miss = stage.get("missing_mandatory_fields", [])
+                    if m_miss:
+                        print("Missing Mandatory Information")
+                        for mm in m_miss:
+                            print(f"• {mm}")
+                        print()
+                        
+                    m_opt = stage.get("missing_optional_fields", [])
+                    if m_opt:
+                        print("Missing Optional Information")
+                        for mo in m_opt:
+                            print(f"• {mo}")
+                        print()
+                        
+                    conflicts = stage.get("conflicts", [])
+                    if conflicts:
+                        print("Conflicts")
+                        for c in conflicts:
+                            print(f"• {c}")
+                        print()
+                    else:
+                        print("Conflicts : None\n")
+                        
+                    warnings = stage.get("warnings", [])
+                    if warnings:
+                        print("Warnings")
+                        for w in warnings:
+                            print(f"• {w}")
+                        print()
+                    else:
+                        print("Warnings : None\n")
+                        
+                    print(f"Recommendation\n{stage.get('recommendation', '')}\n")
+                    print("-" * 50 + "\n")
+
+                # Print Overall Procurement Process Summary
+                print("=" * 14 + " PROCUREMENT PROCESS SUMMARY " + "=" * 14 + "\n")
+                for stage in stages_list:
+                    s_icon = "✅" if stage.get("validation") == "PASSED" else "❌"
+                    print(f"{stage.get('stage', 'Stage'):<12}: {s_icon} {stage.get('completeness_score', 0)}%")
+                for ms in proc_process.get("missing_stages", []):
+                    print(f"{ms:<12}: ❌ Missing")
+                print()
                 
-                print("\n" + "=" * 17 + " PROCUREMENT INFO " + "=" * 17 + "\n")
-                print(f"Document Type : {doc_type_display}\n")
-                print(f"Buyer : {buyer_name}\n")
-                print(f"Supplier : {supplier_name}\n")
-                print(f"Procurement Status : {status_str}\n")
-                print(f"Completeness Score : {score_val}%\n")
-                print(f"Validation : {val_display}\n")
-                print(f"Conflicts : {conflicts_count}\n")
+                ov_score = proc_process.get("overall_completeness", 0)
+                ov_val = proc_process.get("overall_validation", "FAILED")
+                ov_val_display = "✅ PASSED" if ov_val == "PASSED" else "❌ FAILED"
                 
-                if proc_missing:
-                    print("Missing Procurement Information")
-                    for item in proc_missing:
-                        print(f"• {item.get('field', 'Field')}")
-                    print()
-                else:
-                    print("Missing Procurement Information : None\n")
-                    
-                is_valid, errors, warnings, schema_used = validate_extraction(result)
-                if warnings:
-                    print(f"Warnings : {len(warnings)}")
-                    for warn in warnings:
-                        words = warn.split()
-                        short_warn = " ".join(words[:4]) + "..." if len(words) > 4 else warn
-                        print(f"• {short_warn}")
-                    print()
-                else:
-                    print("Warnings : None\n")
-                    
-                if proc_rec:
-                    print(f"Recommendation\n{proc_rec}\n")
-                    
+                print(f"Overall Procurement Completeness : {ov_score}%\n")
+                print(f"Overall Validation : {ov_val_display}\n")
+                print(f"Reason\n{proc_process.get('reason', '')}\n")
+                
                 print("Output Files\n")
                 print("✓ extracted_data.json\n")
                 print("✓ summary.txt")
