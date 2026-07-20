@@ -16,7 +16,7 @@ from tools.gmail_reader import build_search_query, fetch_emails
 from tools.attachment_downloader import download_all_attachments
 from tools.link_extractor import extract_resources
 from tools.extractor import extract_attachment_content
-from tools.summarizer import summarize_email
+from tools.summarizer import summarize_email, save_extraction_outputs
 
 logger = setup_logger("main")
 
@@ -175,8 +175,8 @@ def process_emails(emails: List[Dict[str, Any]], service: Any) -> None:
         # 4. Generate structured summary
         summary = summarize_email(email, resources, attachment_contents)
         
-        # 5. Save outputs
-        save_summary_outputs(summary)
+        # 5. Save outputs into mail-named timestamp folder
+        save_extraction_outputs(email, summary, attachment_contents)
         
         # 6. Display to console
         display_email_summary(summary)

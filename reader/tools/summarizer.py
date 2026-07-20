@@ -279,13 +279,5 @@ def save_extraction_outputs(
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(full_json_payload, f, indent=2, ensure_ascii=False)
 
-    # Also update root output files for backward compatibility
-    root_txt_path = Config.OUTPUTS_DIR / "summary.txt"
-    root_json_path = Config.OUTPUTS_DIR / "summary.json"
-    with open(root_txt_path, "w", encoding="utf-8") as f:
-        f.write(summary_txt_content)
-    with open(root_json_path, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
-
     logger.info(f"Saved extraction outputs to: {output_dir}")
     return txt_path, json_path
