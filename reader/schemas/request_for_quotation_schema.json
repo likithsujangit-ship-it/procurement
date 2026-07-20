@@ -9,8 +9,7 @@
     "document_type": {
       "type": "array",
       "items": {
-        "type": "string",
-        "enum": ["RFQ", "BOM", "Technical_Specification"]
+        "type": "string"
       },
       "minItems": 1
     },
@@ -18,45 +17,43 @@
       "type": "object",
       "properties": {
         "company_name": { "type": "string" },
+        "address": { "type": "string" },
+        "gstin": { "type": "string" },
         "contact_name": { "type": "string" },
         "contact_title": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "phone": { "type": "string" },
-        "address": { "type": "string" },
-        "gstin": { "type": "string", "pattern": "^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[0-9A-Z]{1}Z[0-9A-Z]{1}$" }
+        "email": { "type": "string" },
+        "phone": { "type": "string" }
       },
-      "required": ["company_name", "contact_name", "contact_title", "email", "phone", "address", "gstin"],
-      "additionalProperties": false
+      "required": ["company_name", "contact_name", "email"]
     },
     "supplier": {
       "type": "object",
       "properties": {
         "company_name": { "type": "string" },
+        "address": { "type": "string" },
         "contact_name": { "type": "string" },
         "contact_title": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "address": { "type": "string" }
+        "email": { "type": "string" }
       },
-      "required": ["company_name", "contact_name", "contact_title", "email", "address"],
-      "additionalProperties": false
+      "required": ["company_name", "contact_name", "email"]
     },
     "rfq_number": { "type": "string" },
-    "rfq_date": { "type": "string", "format": "date" },
-    "quotation_due_date": { "type": "string", "format": "date" },
+    "rfq_issue_date": { "type": "string" },
+    "quotation_due_date": { "type": "string" },
     "items": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "properties": {
+          "line": { "type": "integer" },
           "part_number": { "type": "string" },
           "description": { "type": "string" },
-          "quantity": { "type": "integer", "minimum": 1 },
+          "quantity": { "type": "integer" },
           "unit": { "type": "string" },
-          "material_spec": { "type": "string" }
+          "material_grade": { "type": "string" }
         },
-        "required": ["part_number", "description", "quantity", "unit", "material_spec"],
-        "additionalProperties": false
+        "required": ["part_number", "description", "quantity", "unit"]
       }
     },
     "commercial_terms": {
@@ -65,11 +62,28 @@
         "payment_terms": { "type": "string" },
         "incoterms": { "type": "string" },
         "currency": { "type": "string" },
-        "warranty": { "type": "string" },
-        "delivery_requirement": { "type": "string" }
-      },
-      "required": ["payment_terms", "incoterms", "currency", "warranty", "delivery_requirement"],
-      "additionalProperties": false
+        "quotation_validity": { "type": "string" },
+        "warranty": { "type": "string" }
+      }
+    },
+    "delivery_requirements": {
+      "type": "object",
+      "properties": {
+        "delivery_location": { "type": "string" },
+        "required_delivery_date": { "type": "string" },
+        "delivery_split": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "split": { "type": "string" },
+              "percentage": { "type": "number" },
+              "date": { "type": "string" }
+            }
+          }
+        },
+        "partial_shipments_allowed": { "type": "boolean" }
+      }
     },
     "shipping_details": {
       "type": "object"
@@ -80,15 +94,10 @@
         "type": "object",
         "properties": {
           "filename": { "type": "string" },
-          "type": { "type": "string", "enum": ["RFQ", "BOM", "Technical_Specification"] },
-          "contains": { 
-            "type": "array",
-            "items": { "type": "string" },
-            "minItems": 1
-          }
+          "type": { "type": "string" },
+          "extracted": { "type": "boolean" }
         },
-        "required": ["filename", "type", "contains"],
-        "additionalProperties": false
+        "required": ["filename"]
       }
     },
     "missing_fields": {
@@ -99,15 +108,12 @@
       "type": "array"
     },
     "confidence_score": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1
+      "type": "number"
     }
   },
   "required": [
-    "intent", "document_type", "buyer", "supplier", "rfq_number", "rfq_date", "quotation_due_date", "items", 
-    "commercial_terms", "shipping_details", 
+    "intent", "document_type", "buyer", "supplier", "rfq_number", "rfq_issue_date", "quotation_due_date", "items", 
+    "commercial_terms", "delivery_requirements", "shipping_details", 
     "attachments", "missing_fields", "conflicts", "confidence_score"
-  ],
-  "additionalProperties": false
+  ]
 }

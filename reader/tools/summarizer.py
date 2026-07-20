@@ -256,8 +256,8 @@ def save_extraction_outputs(
     txt_lines.append("=" * 80)
     summary_txt_content = "\n".join(txt_lines)
 
-    # Write summary.txt
-    txt_path = output_dir / "summary.txt"
+    # Write summary.txt with prefix
+    txt_path = output_dir / f"{prefix}_summary.txt"
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(summary_txt_content)
 
@@ -275,7 +275,7 @@ def save_extraction_outputs(
         "structured_extractions": structured_extractions or {}
     }
 
-    json_path = output_dir / "extracted_data.json"
+    json_path = output_dir / f"{prefix}_extracted_data.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(full_json_payload, f, indent=2, ensure_ascii=False)
 

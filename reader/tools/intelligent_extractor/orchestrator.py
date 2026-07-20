@@ -97,7 +97,7 @@ class PipelineOrchestrator:
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # 3. Save JSON
-        output_path = output_dir / "extracted_data.json"
+        output_path = output_dir / f"{prefix}_extracted_data.json"
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(result_json, f, indent=4, ensure_ascii=False)
             
@@ -116,7 +116,7 @@ class PipelineOrchestrator:
             logger.warning(f"Failed to generate summary: {e}")
             summary_text = f"Failed to generate summary. Raw email body:\n\n{email_body}"
             
-        summary_path = output_dir / "summary.txt"
+        summary_path = output_dir / f"{prefix}_summary.txt"
         with open(summary_path, "w", encoding="utf-8") as f:
             f.write(f"Subject: {email_metadata.get('subject', 'No Subject')}\n")
             f.write(f"Sender: {sender_raw}\n")
