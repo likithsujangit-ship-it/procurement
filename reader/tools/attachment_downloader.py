@@ -118,8 +118,8 @@ def download_all_attachments(
     else:
         dt = datetime.now()
 
-    # Format: dd / mm / yyyy - (xxH : yyM : zzS)
-    time_folder_name = dt.strftime("%d / %m / %Y - (%HH : %MM : %SS)")
+    # Format: dd / mm / yyyy - (xxH : yyM : zzS) as a single flat folder name
+    time_folder_name = f"{dt.day:02d} ∕ {dt.month:02d} ∕ {dt.year} - ({dt.hour:02d}H : {dt.minute:02d}M : {dt.second:02d}S)"
     
     target_dir = Config.DOWNLOAD_DIR / prefix / time_folder_name
     target_dir.mkdir(parents=True, exist_ok=True)
