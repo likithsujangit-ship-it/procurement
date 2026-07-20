@@ -200,7 +200,7 @@ def save_extraction_outputs(
     else:
         dt = datetime.now()
 
-    time_folder_name = dt.strftime("%d-%m-%Y - (%HH_%MM_%SS)")
+    time_folder_name = dt.strftime("%d / %m / %Y - (%HH : %MM : %SS)")
 
     # 3. Create target output directory
     output_dir = Config.OUTPUTS_DIR / prefix / time_folder_name

@@ -137,7 +137,7 @@ class PipelineOrchestrator:
         else:
             dt = datetime.now()
 
-        time_folder_name = dt.strftime("%d-%m-%Y - (%HH_%MM_%SS)")
+        time_folder_name = dt.strftime("%d / %m / %Y - (%HH : %MM : %SS)")
         
         output_dir = Config.OUTPUTS_DIR / prefix / time_folder_name
         output_dir.mkdir(parents=True, exist_ok=True)
