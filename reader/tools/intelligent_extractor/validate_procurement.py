@@ -125,15 +125,7 @@ def audit_procurement_completeness(result_json: Dict[str, Any]) -> Dict[str, Any
 
     # Calculate Completeness Score (0 - 100)
     raw_score = (passed_checks / total_checks) * 100 if total_checks > 0 else 100
-    
-    # Deduct 5 points per conflict
     conflict_penalty = len(conflicts) * 5
-    
-    # Adjust score based on confidence
-    conf = result_json.get("confidence_score", 1.0)
-    if conf < 1.0:
-        raw_score *= conf
-
     completeness_score = max(0, min(100, int(round(raw_score - conflict_penalty))))
 
     # Determine status & validation
