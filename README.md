@@ -13,7 +13,7 @@ EMAIL_AI is an enterprise-grade, scalable AI-powered email and document analysis
 EMAIL_AI/
 ├── README.md
 ├── run_tests.py         # Verification unit & integration test suite
-├── venv/                # Local Python 3.13 virtual environment
+├── venv/                # Local Python virtual environment
 ├── sender/
 │   ├── .env
 │   ├── config.py
@@ -42,8 +42,13 @@ EMAIL_AI/
 │   │   └── <sender_prefix>/
 │   │       └── <DD-MM-YYYY-(HH_MM_SS_fff)>/
 │   │           └── downloaded_file.pdf
-│   ├── outputs/         # Generated summary.json, summary.txt, and search_index.json
-│   ├── schemas/         # Dynamic Multi-Intent JSON Schemas
+│   ├── outputs/         # Extracted JSON & summary files mirroring files layout
+│   │   └── <sender_prefix>/
+│   │       └── <DD-MM-YYYY-(HH_MM_SS_fff)>/
+│   │           ├── <sender_prefix>_extracted_data.json
+│   │           └── <sender_prefix>_summary.txt
+│   ├── schemas/         # Dynamic Multi-Intent JSON Schemas & Master Schema
+│   │   ├── master_procurement_schema.json
 │   │   ├── request_for_quotation_schema.json
 │   │   ├── purchase_order_schema.json
 │   │   ├── invoice_schema.json
@@ -67,7 +72,15 @@ EMAIL_AI/
 │       ├── summarizer.py
 │       ├── groq_client.py
 │       ├── search_engine.py
-│       └── utils.py
+│       └── intelligent_extractor/
+│           ├── __init__.py
+│           ├── orchestrator.py
+│           ├── classifier.py
+│           ├── entity_extractor.py
+│           ├── merger.py
+│           ├── prompts.py
+│           ├── exceptions.py
+│           └── validate_extraction.py
 └── assistant/
     ├── __init__.py
     ├── config.py         # Dynamic Namespace Call-Stack Import Loader
@@ -83,13 +96,13 @@ EMAIL_AI/
 ### 1. Unified Assistant (`assistant/`)
 * **Namespace Isolation**: Uses a custom stack-trace routing module proxy in `sys.modules["config"]` to run both projects in one memory space without namespace collisions.
 * **Central Intent Classifier**: Routes user prompts into actions: send, read, download, extract, summarize, or search.
-* **Per-Sender Query Loop**: Loops queries independently per sender if multiple addresses are listed.
+* **Smart Natural Language Mail Extraction**: Routes instructions like `extract from this mail`, `extract latest from <email>`, or `extract from mail` directly to the full LLM document extraction pipeline.
 * **Recursive Glob Search**: Searches directories recursively (`files/**/filename`) so that document extraction works no matter which subfolder a file is downloaded to.
 * **Dynamic N Emails Parsing**: Extracts numeric parameters (e.g. "last 5", "latest 10") to cap inbox queries.
 
 ### 2. Email Sender (`sender/`)
 * **Natural Language Command Parsing**: Extracts recipients, CC, BCC, attachments, subject context, and tone from text.
-* **AI Content Generation**: Generates highly styled HTML templates (with inline CSS) and plain-text alternatives matching 12 different tones.
+* **AI Content Generation**: Generates highly styled HTML templates (with inline CSS) and plain-text alternatives matching 12 different tones using Llama 3.3 70B.
 * **Attachment Verification**: Ensures files are available inside `sender/files/` before drafting.
 * **MIME Construction & SMTP Transmission**: Builds standard compliant emails and transmits over TLS to Gmail SMTP.
 
@@ -99,17 +112,33 @@ EMAIL_AI/
 * **Structural Document Extractors**: Dedicated layout readers for PDFs, DOCX (Word), PPTX (Slides), XLSX (Excel matrices), CSV, archives (ZIP), and OCR image scanning.
 * **Resource Extractor**: Pulls out OTPs, meeting dates, phone numbers, tracking IDs, invoice IDs, and Drive/GitHub links.
 
-### 4. AI Search Engine (`reader/tools/search_engine.py`)
-* **Incremental File Indexing**: Scans all subfolders in `reader/files/` recursively. Uses size and mtime checks to skip unmodified files. Automatically indexes new downloads without manual re-indexing.
-* **Typo-Tolerance (Fuzzy Similarity)**: Implements character bigram Jaccard similarity. Matches sender names or filenames even if the user makes spelling typos (e.g., matching `mitta.venakata` to `mitta.venkata2024` with a high similarity threshold).
-* **Word Boundary Precision**: Uses regular expression word boundaries (`\bword\b`) for content searches.
-* **Exact Filename Restrict**: If the search query matches any filename or stem exactly, the search engine restricts results to only those files.
+### 4. Enterprise Document-Intelligence Extraction Engine (`reader/tools/intelligent_extractor/`)
+* **Master Procurement Schema**: Standardized top-level extraction payload covering `intent`, `document_type`, `buyer`, `supplier`, `rfq_number`, `po_number`, `invoice_number`, `shipment_id`, `items`, `commercial_terms`, `delivery_requirements`, `shipping_details`, `approval`, `attachments`, `missing_fields`, `conflicts`, and `confidence_score`.
+* **Strict 8-Rule Document Intelligence Policy**:
+  1. **Document Identity Authority**: `buyer` and `supplier` company names, addresses, tax IDs (GSTIN), and contact emails are extracted directly from attachment text (`RFQ.pdf`, PO, Invoice), overriding forwarding envelope senders.
+  2. **Envelope Discrepancy Auditing**: Disagreements between email envelope senders and document contact emails are surfaced in `conflicts` (e.g. `sender_vs_buyer_email`).
+  3. **ISO 8601 Date Normalization**: Standardizes all dates to `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS+HH:MM` and records date discrepancies.
+  4. **Multi-Item Line Extraction (`items[]`)**: Cross-checks part numbers, descriptions, quantities, units, and material grades across `BOM.xlsx`, `RFQ.pdf`, and `Technical_Specification.docx`.
+  5. **Scoped Commercial & Delivery Terms**: Captures payment terms, Incoterms 2020, quotation validity, warranty, delivery splits (e.g. 40%/60%), and partial shipment flags.
+  6. **Attachment MIME Classification**: Automatically infers MIME types and flags `extracted: true/false`.
+  7. **Missing Fields Audit**: Tracks expected schema fields missing from source documents.
+  8. **Dynamic Confidence Score**: Computes a Float (0.0–1.0) adjusted for conflicts, missing fields, or OCR artifacts.
+* **Directory Layout Parity**: Output files are written to `reader/outputs/<sender_prefix>/<DD-MM-YYYY-(HH_MM_SS_fff)>/`:
+  * `<sender_prefix>_extracted_data.json` (Flat structured JSON object matching master schema)
+  * `<sender_prefix>_summary.txt` (Human-readable executive text report)
+* **Zero Extra File Clutter**: Ensures no secondary dynamic JSON files or root outputs are created.
 
-### 5. Multi-Intent Intelligent Extraction (`reader/tools/intelligent_extractor/`)
-* **Dynamic Intent Routing**: The `DocumentClassifier` analyzes the unified context of an email and its attachments to determine intent (e.g. `request_for_quotation`, `purchase_order`, `invoice`).
-* **Schema-Agnostic LLM Extraction**: Based on the classified intent, `EntityExtractor` dynamically loads a standalone JSON Schema (e.g. `purchase_order_schema.json`) and passes it to the LLM to enforce strict structure and data types.
-* **Granular Validation Rules**: `validate_extraction.py` verifies the LLM output against the dynamic schema, checks ISO 8601 date formats, ensures integers are formatted correctly (e.g., 40, not 40.0), and prevents context bleed. Console output displays concise 2-3 word explanations for any validation warnings.
-* **Structured Context Storage**: Automatically saves the extraction output into a nested hierarchy: `outputs/intelligent_extraction/<username>/<timestamp>/`. Alongside the JSON, it generates a `summary.txt` file containing a brief AI-generated summary of the email's context.
+### 5. Advanced Groq Client & Resilient Rate Limit Protection (`reader/tools/groq_client.py`)
+* **Primary LPU Engine**: Powered by Meta's `llama-3.3-70b-versatile` running at 300+ tokens/sec on Groq LPUs.
+* **Context Truncation (`merger.py`)**: Caps prompt context size to 4,000 max tokens (~16,000 characters) preserving beginning and end context, ensuring total tokens stay well within Groq TPM limits.
+* **Multi-Tiered Fallback Chain**: On HTTP 429 (rate limit) or 413 (token limit), automatically performs a 2-second backoff delay and falls back smoothly through `llama-3.1-8b-instant` $\rightarrow$ `mixtral-8x7b-32768` $\rightarrow$ `llama3-70b-8192` with prompt context safety.
+
+### 6. AI Search Engine (`reader/tools/search_engine.py`)
+* **Incremental File Indexing**: Scans all subfolders in `reader/files/` recursively. Uses size and mtime checks to skip unmodified files.
+* **Typo-Tolerance (Fuzzy Similarity)**: Uses character bigram Jaccard similarity to match senders or filenames even with spelling typos (e.g., matching `mitta.venakata` to `mitta.venkata2024`).
+* **Word Boundary Precision**: Employs regex word boundaries (`\bword\b`) for content searches.
+* **Exact Filename Restrict**: Restricts candidates strictly to exact matches when a query matches a filename or stem exactly.
+* **Multi-Extension Support**: Filters by multiple extensions (e.g. `find mitta with .pdf and .pptx`).
 
 ---
 
@@ -117,10 +146,10 @@ EMAIL_AI/
 
 ### 1. Google Cloud OAuth Setup (Reader API)
 * Enable the **Gmail API** in Google Cloud Console.
-* Set the Publishing status to **Testing** and add your testing email address under **Test Users**.
+* Set Publishing status to **Testing** and add your testing email address under **Test Users**.
 * Download your Desktop Client ID JSON, rename it to `credentials.json`, and place it in the `reader/` directory.
 
-### 2. SMTP app Password Setup (Sender SMTP)
+### 2. SMTP App Password Setup (Sender SMTP)
 * Enable **2-Step Verification** on your Google Account.
 * Generate an **App Password** for "Mail".
 * Copy the 16-character code and paste it as `SMTP_PASSWORD` in `sender/.env`. Set `SMTP_EMAIL` to your Gmail address.
@@ -169,16 +198,17 @@ Inside the **`ASSISTANT >`** CLI prompt, you can run these commands:
 * **Download attachments from multiple distinct senders**:
   `Download attachments from likithtech2006@gmail.com and antigravitysubtemp@gmail.com`
 
-### 4. File Content Extraction and AI Analysis
-* **Extract text from a downloaded document**:
-  `Extract document resume.pdf`
-* **Extract text from a downloaded spreadsheet**:
-  `Extract document report.xlsx`
-* **Generate AI summary report for a local file**:
-  `Summarize document invoice.pdf`
+### 4. Intelligent Data Extraction (Multi-Intent & Attachments)
+* **Extract structured JSON data from email & attachments**:
+  * `Extract from this mail`
+  * `Extract latest from pratap.veera2024@vitstudent.ac.in`
+  * `Extract the structured JSON for the latest email from vendor@supplier.com`
+* **Extract from multiple senders concurrently**:
+  * `Extract the structured JSON for the latest email from vendor1@supplier.com and vendor2@supplier.com`
+  
+  *(The assistant downloads attachments to `reader/files/<sender>/<timestamp>/`, parses all documents, runs Llama 3.3 70B entity extraction, and writes `<sender>_extracted_data.json` and `<sender>_summary.txt` inside `reader/outputs/<sender>/<timestamp>/`)*
 
 ### 5. Natural Language AI Search Engine
-
 * **Search by Exact/Partial Filename**:
   * `Find construction.pdf` (Strictly returns only files named `construction.pdf` across all folders)
   * `Find resume` (Returns any file name containing "resume")
@@ -193,13 +223,3 @@ Inside the **`ASSISTANT >`** CLI prompt, you can run these commands:
 * **Search by Document Context**:
   * `Find documents about Python` (Searches within parsed document text contexts for keywords)
   * `Show Amazon bills` (Filters for files sent by "Amazon" containing billing text)
-
-### 6. Intelligent Data Extraction (Multi-Intent)
-
-* **Extract structured JSON data (e.g. POs, RFQs, Invoices) from an email**:
-  * `Extract the structured JSON for the latest email from vendor@supplier.com`
-  * `Extract the structured JSON for the last 1 email from procurement@corp.com`
-* **Extract from multiple senders concurrently**:
-  * `Extract the structured JSON for the latest email from vendor1@supplier.com and vendor2@supplier.com`
-  
-  *(The assistant will classify the email intent, extract commercial data, validate it against the corresponding JSON schema, and save the resulting JSON and AI `summary.txt` to `reader/outputs/intelligent_extraction/<username>/<date_time>/`)*

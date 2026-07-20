@@ -15,7 +15,7 @@ An independent Python tool to query Gmail inbox, download attachments, read cont
   - **ZIP**: Archive file list parsing (`zipfile`).
   - **OCR**: Converts images to text using pytesseract.
 - **Resource Classifier**: Pulls out OTPs, meeting dates, links (OneDrive, Google Drive, GitHub, URLs), email addresses, invoice numbers, reference numbers, and tracking codes.
-- **AI Summary Reports**: Generates prioritized summaries, pending actions, and task matrices saved to `outputs/summary.json` and `outputs/summary.txt`.
+- **AI Summary & Extraction Reports**: Generates prioritized summaries, pending actions, task matrices, and master procurement JSON extractions saved directly under `outputs/<sender_prefix>/<timestamp>/` as `<prefix>_extracted_data.json` and `<prefix>_summary.txt`.
 
 ---
 
