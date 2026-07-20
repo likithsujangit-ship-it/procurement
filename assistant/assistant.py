@@ -484,35 +484,61 @@ class UnifiedAssistant:
                 orchestrator = PipelineOrchestrator()
                 result = orchestrator.run(metadata, body, paths)
                 
-                print("\n" + "=" * 30 + " EXTRACTION COMPLETE " + "=" * 30)
-                print(f"Document Type: {result.get('intent', 'Unknown')}")
-                print(f"Buyer:       {result.get('buyer', {}).get('company_name', '')}")
-                print(f"Supplier:    {result.get('supplier', {}).get('company_name', '')}")
-                if result.get("missing_fields"):
-                    print(f"Missing:     {', '.join(result['missing_fields'])}")
-                if result.get("conflicts"):
-                    print(f"Conflicts:   {len(result['conflicts'])}")
+                # Extract procurement status details
+                proc_status = result.get("procurement_status", {})
+                proc_val = result.get("validation", {})
+                proc_missing = result.get("missing_procurement_information", [])
+                proc_rec = result.get("recommendation", "")
+                conflicts_count = len(result.get("conflicts", []))
                 
-                # Run Schema Validation
-                is_valid, errors, warnings, schema_used = validate_extraction(result)
-                if is_valid:
-                    print(f"Validation:  ✅ PASSED ({schema_used})")
+                # Format Document Type nicely (e.g. purchase_order_issuance -> Purchase Order)
+                intent_raw = result.get("intent", "other")
+                doc_type_display = intent_raw.replace("_issuance", "").replace("_only", "").replace("_", " ").title()
+                if result.get("document_type") and len(result["document_type"]) > 0:
+                    doc_type_display = result["document_type"][0].replace("_", " ").title()
+
+                buyer_name = result.get("buyer", {}).get("company_name") or result.get("buyer", {}).get("contact_name") or "Not Specified"
+                supplier_name = result.get("supplier", {}).get("company_name") or result.get("supplier", {}).get("contact_name") or "Not Specified"
+                status_str = proc_status.get("status", "INCOMPLETE")
+                score_val = proc_status.get("completeness_score", 0)
+                val_status = proc_val.get("status", "FAILED")
+                val_display = "✅ PASSED" if val_status == "PASSED" else "❌ FAILED"
+                
+                print("\n" + "=" * 17 + " PROCUREMENT INFO " + "=" * 17 + "\n")
+                print(f"Document Type : {doc_type_display}\n")
+                print(f"Buyer : {buyer_name}\n")
+                print(f"Supplier : {supplier_name}\n")
+                print(f"Procurement Status : {status_str}\n")
+                print(f"Completeness Score : {score_val}%\n")
+                print(f"Validation : {val_display}\n")
+                print(f"Conflicts : {conflicts_count}\n")
+                
+                if proc_missing:
+                    print("Missing Procurement Information")
+                    for item in proc_missing:
+                        print(f"• {item.get('field', 'Field')}")
+                    print()
                 else:
-                    print(f"Validation:  ❌ FAILED ({len(errors)} errors) against {schema_used}")
-                    for err in errors[:3]:
-                        print(f"             - {err}")
-                    if len(errors) > 3:
-                        print(f"             ... and {len(errors)-3} more")
+                    print("Missing Procurement Information : None\n")
+                    
+                is_valid, errors, warnings, schema_used = validate_extraction(result)
                 if warnings:
-                    print(f"Warnings:    {len(warnings)} warnings")
+                    print(f"Warnings : {len(warnings)}")
                     for warn in warnings:
-                        # Provide a short 2 to 3 word explanation of the warning
                         words = warn.split()
                         short_warn = " ".join(words[:4]) + "..." if len(words) > 4 else warn
-                        print(f"             ⚠ {short_warn}")
+                        print(f"• {short_warn}")
+                    print()
+                else:
+                    print("Warnings : None\n")
                     
-                print(f"Extraction JSON (extracted_data.json) and summary.txt saved under reader/outputs/<sender_prefix>/<timestamp>/")
-                print("=" * 81 + "\n")
+                if proc_rec:
+                    print(f"Recommendation\n{proc_rec}\n")
+                    
+                print("Output Files\n")
+                print("✓ extracted_data.json\n")
+                print("✓ summary.txt")
+                print("\n" + "=" * 52 + "\n")
             
         except GmailAuthError as auth_err:
             print(f"[OAuth Error] {auth_err}")

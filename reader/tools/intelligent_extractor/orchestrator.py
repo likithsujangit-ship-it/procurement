@@ -91,6 +91,10 @@ class PipelineOrchestrator:
         # 4. Add confidence score
         if "confidence_score" not in result_json:
             result_json["confidence_score"] = classification.confidence
+
+        # 5. Run Procurement Completeness Audit
+        from tools.intelligent_extractor.validate_procurement import audit_procurement_completeness
+        result_json = audit_procurement_completeness(result_json)
             
         # Determine dynamic filename as per user request
         doc_type = result_json.get("intent", classification.intent)
@@ -155,12 +159,33 @@ class PipelineOrchestrator:
             summary_text = f"Failed to generate summary. Raw email body:\n\n{email_body}"
             
         summary_path = output_dir / f"{prefix}_summary.txt"
+        
+        # Format PROCUREMENT VALIDATION section for summary.txt
+        proc_status = result_json.get("procurement_status", {})
+        proc_val = result_json.get("validation", {})
+        proc_missing = result_json.get("missing_procurement_information", [])
+        proc_rec = result_json.get("recommendation", "")
+        
+        missing_text_lines = []
+        if proc_missing:
+            for item in proc_missing:
+                missing_text_lines.append(f"• {item.get('field', 'Field')}")
+        else:
+            missing_text_lines.append("None")
+            
         with open(summary_path, "w", encoding="utf-8") as f:
             f.write(f"Subject: {email_metadata.get('subject', 'No Subject')}\n")
             f.write(f"Sender: {sender_raw}\n")
             f.write(f"Date: {date_raw}\n\n")
             f.write("--- SUMMARY ---\n")
-            f.write(summary_text)
+            f.write(f"{summary_text}\n\n")
+            f.write("================ PROCUREMENT VALIDATION ================\n\n")
+            f.write(f"Procurement Status: {proc_status.get('status', 'N/A')}\n\n")
+            f.write(f"Completeness Score: {proc_status.get('completeness_score', 0)}%\n\n")
+            f.write(f"Validation: {proc_val.get('status', 'N/A')}\n\n")
+            f.write("Missing Procurement Information:\n")
+            f.write("\n".join(missing_text_lines) + "\n\n")
+            f.write(f"Recommendation:\n{proc_rec}\n")
             
         logger.info(f"Pipeline completed successfully. Saved JSON and summary to {output_dir}")
         return result_json

@@ -109,11 +109,24 @@
     },
     "confidence_score": {
       "type": "number"
+    },
+    "procurement_status": {
+      "type": "object"
+    },
+    "validation": {
+      "type": "object"
+    },
+    "missing_procurement_information": {
+      "type": "array"
+    },
+    "recommendation": {
+      "type": "string"
     }
   },
   "required": [
     "intent", "document_type", "buyer", "supplier", "rfq_number", "rfq_issue_date", "quotation_due_date", "items", 
     "commercial_terms", "delivery_requirements", "shipping_details", 
-    "attachments", "missing_fields", "conflicts", "confidence_score"
+    "attachments", "missing_fields", "conflicts", "confidence_score",
+    "procurement_status", "validation", "missing_procurement_information", "recommendation"
   ]
 }

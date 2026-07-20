@@ -39,11 +39,35 @@
       "type": "number",
       "minimum": 0,
       "maximum": 1
+    },
+    "procurement_status": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["COMPLETE", "INCOMPLETE"] },
+        "completeness_score": { "type": "number", "minimum": 0, "maximum": 100 }
+      },
+      "required": ["status", "completeness_score"]
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["PASSED", "FAILED"] },
+        "reason": { "type": "string" }
+      },
+      "required": ["status", "reason"]
+    },
+    "missing_procurement_information": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "recommendation": {
+      "type": "string"
     }
   },
   "required": [
     "intent", "document_type", "buyer", "supplier", "rfq_number", "po_number", "invoice_number", "shipment_id",
     "items", "commercial_terms", "delivery_requirements", "shipping_details", "approval",
-    "attachments", "missing_fields", "conflicts", "confidence_score"
+    "attachments", "missing_fields", "conflicts", "confidence_score",
+    "procurement_status", "validation", "missing_procurement_information", "recommendation"
   ]
 }
