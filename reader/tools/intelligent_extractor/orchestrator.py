@@ -47,8 +47,50 @@ class PipelineOrchestrator:
         logger.info(f"Extracting entities. Intent identified as: {classification.intent}")
         result_json = self.extractor.extract(unified_context, classification.intent)
         
-        # Add metadata manually since we bypassed a single pydantic model
-        result_json["confidence_score"] = classification.confidence
+        # 1. Post-process document_type array
+        if "document_type" not in result_json or not isinstance(result_json.get("document_type"), list) or not result_json["document_type"]:
+            doc_types = []
+            for att in attachments_data:
+                fn_lower = att["filename"].lower()
+                if "rfq" in fn_lower:
+                    doc_types.append("RFQ")
+                elif "bom" in fn_lower:
+                    doc_types.append("BOM")
+                elif "spec" in fn_lower or "tech" in fn_lower:
+                    doc_types.append("Technical_Specification")
+            if not doc_types:
+                doc_types = ["RFQ"]
+            result_json["document_type"] = doc_types
+
+        # 2. Post-process attachments array with exact MIME types and extraction status
+        attachments_list = []
+        for att in attachments_data:
+            ext = att["extension"]
+            mime = "application/pdf" if ext == ".pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if ext == ".xlsx" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if ext == ".docx" else "application/octet-stream"
+            attachments_list.append({
+                "filename": att["filename"],
+                "type": mime,
+                "extracted": bool(att["raw_text"].strip())
+            })
+        result_json["attachments"] = attachments_list
+
+        # 3. Post-process sender vs buyer/supplier email conflicts
+        sender_env = email_metadata.get("sender", "")
+        buyer_email = result_json.get("buyer", {}).get("email", "") if isinstance(result_json.get("buyer"), dict) else ""
+        if sender_env and buyer_email and buyer_email.lower() not in sender_env.lower():
+            if "conflicts" not in result_json or not isinstance(result_json.get("conflicts"), list):
+                result_json["conflicts"] = []
+            if not any(isinstance(c, dict) and c.get("field") == "sender_vs_buyer_email" for c in result_json["conflicts"]):
+                result_json["conflicts"].append({
+                    "field": "sender_vs_buyer_email",
+                    "email_sender": sender_env,
+                    "document_buyer_email": buyer_email,
+                    "note": "Envelope sender does not match buyer contact email in document"
+                })
+
+        # 4. Add confidence score
+        if "confidence_score" not in result_json:
+            result_json["confidence_score"] = classification.confidence
             
         # Determine dynamic filename as per user request
         doc_type = result_json.get("intent", classification.intent)

@@ -246,9 +246,21 @@ class UnifiedAssistant:
                 for p in paths:
                     attachment_contents[p.name] = extract_attachment_content(p)
                     
-                resources = extract_resources(email["body"] + "\n" + email["html_body"])
+                metadata = {
+                    "subject": email.get("subject", ""),
+                    "sender": email.get("sender", ""),
+                    "date": email.get("date", ""),
+                    "internal_date_ms": email.get("internalDate", "")
+                }
+                body = email.get("body", "") + "\n" + email.get("html_body", "")
+
+                # Run Intelligent Extraction Pipeline
+                orchestrator = PipelineOrchestrator()
+                structured_extractions = orchestrator.run(metadata, body, paths)
+
+                resources = extract_resources(body)
                 summary = summarize_email(email, resources, attachment_contents)
-                save_extraction_outputs(email, summary, attachment_contents)
+                save_extraction_outputs(email, summary, attachment_contents, structured_extractions=structured_extractions)
                 
                 # Display report
                 print("\n" + "=" * 30 + " AI EMAIL REPORT " + "=" * 30)

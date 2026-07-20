@@ -262,6 +262,36 @@ def save_extraction_outputs(
         f.write(summary_txt_content)
 
     # 5. Formulate flat structured JSON payload matching exact master schema
+    if not (structured_extractions and isinstance(structured_extractions, dict) and "intent" in structured_extractions and structured_extractions.get("items")):
+        try:
+            from tools.intelligent_extractor.orchestrator import PipelineOrchestrator
+            metadata = {
+                "subject": email_data.get("subject", ""),
+                "sender": email_data.get("sender", ""),
+                "date": email_data.get("date", ""),
+                "internal_date_ms": email_data.get("internalDate", "")
+            }
+            body = email_data.get("body", "") + "\n" + email_data.get("html_body", "")
+            
+            # Find attachment paths from files directory or temporary workspace
+            sender_raw = email_data.get("sender", "unknown")
+            m = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
+            clean_prefix = re.sub(r'[^a-zA-Z0-9._-]', '', m.group(0).split('@')[0]) if m else "unknown"
+            
+            att_paths = []
+            files_sender_dir = Config.DOWNLOAD_DIR / clean_prefix
+            if files_sender_dir.exists():
+                time_dirs = sorted(files_sender_dir.glob('*'), key=lambda p: p.stat().st_mtime, reverse=True)
+                if time_dirs:
+                    att_paths = list(time_dirs[0].glob('*'))
+            
+            orchestrator = PipelineOrchestrator()
+            extracted_res = orchestrator.run(metadata, body, att_paths)
+            if extracted_res and isinstance(extracted_res, dict) and "intent" in extracted_res:
+                structured_extractions = extracted_res
+        except Exception as e:
+            logger.warning(f"Automatic pipeline extraction in save_extraction_outputs failed: {e}")
+
     if structured_extractions and isinstance(structured_extractions, dict) and "intent" in structured_extractions:
         full_json_payload = structured_extractions
     else:
