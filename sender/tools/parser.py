@@ -68,7 +68,7 @@ def _parse_with_groq(command: str) -> Dict[str, Any]:
     )
     
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile", # Llama-3.3-70b
+        model="llama-3.1-8b-instant",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": command}

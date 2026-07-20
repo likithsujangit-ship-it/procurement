@@ -96,6 +96,7 @@ def _summarize_with_groq(
     raw_response = groq.get_completion(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
+        model="mixtral-8x7b-32768",
         response_json=True
     )
     
