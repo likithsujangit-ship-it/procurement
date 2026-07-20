@@ -94,7 +94,7 @@ class PipelineOrchestrator:
 
         # 5. Run Multi-Stage Procurement Completeness Audit
         from tools.intelligent_extractor.stage_validator import validate_multi_stage_procurement
-        result_json = validate_multi_stage_procurement(result_json, email_body, processed_attachments)
+        result_json = validate_multi_stage_procurement(result_json, email_body, attachments_data)
             
         # Determine dynamic filename as per user request
         doc_type = result_json.get("intent") or classification.intent or "other"
