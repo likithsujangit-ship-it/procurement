@@ -38,11 +38,134 @@ class PipelineOrchestrator:
         self.classifier = DocumentClassifier()
         self.extractor = EntityExtractor()
 
+    def _merge_extraction_results(self, results: List[Dict[str, Any]], default_intent: str = "other") -> Dict[str, Any]:
+        master = {
+            "intent": default_intent,
+            "document_type": [],
+            "buyer": {},
+            "supplier": {},
+            "rfq_number": None,
+            "rfq_issue_date": None,
+            "quotation_due_date": None,
+            "date_extended_from": None,
+            "po_number": None,
+            "po_date": None,
+            "invoice_number": None,
+            "invoice_date": None,
+            "shipment_id": None,
+            "items": [],
+            "commercial_terms": {},
+            "delivery_requirements": {},
+            "shipping_details": {},
+            "approval": {},
+            "attachments": [],
+            "missing_fields": [],
+            "conflicts": [],
+            "llm_confidence_score": 1.0,
+            "extracted_with_fallback_model": False,
+            "extraction_status": "success",
+            "failure_reason": None
+        }
+        
+        def merge_dicts(master_dict: dict, source_dict: dict):
+            if not isinstance(source_dict, dict):
+                return
+            for k, v in source_dict.items():
+                if v is not None and v != "" and v != [] and v != {}:
+                    if isinstance(v, dict):
+                        if k not in master_dict or not isinstance(master_dict[k], dict):
+                            master_dict[k] = {}
+                        merge_dicts(master_dict[k], v)
+                    else:
+                        master_dict[k] = v
+
+        # Find the most specific intent among results (not 'other')
+        intents = [r.get("intent") for r in results if r.get("intent") not in (None, "other")]
+        if intents:
+            po_intents = [i for i in intents if "purchase_order" in i]
+            rfq_intents = [i for i in intents if "quotation" in i or "rfq" in i]
+            if po_intents:
+                master["intent"] = po_intents[0]
+            elif rfq_intents:
+                master["intent"] = rfq_intents[0]
+            else:
+                master["intent"] = intents[0]
+
+        # Combine document types
+        doc_types = []
+        for r in results:
+            dt = r.get("document_type")
+            if dt:
+                if isinstance(dt, list):
+                    for val in dt:
+                        if val not in doc_types:
+                            doc_types.append(val)
+                elif isinstance(dt, str):
+                    if dt not in doc_types:
+                        doc_types.append(dt)
+        if doc_types:
+            master["document_type"] = doc_types
+
+        # Merge nested dictionaries
+        for r in results:
+            for field in ["buyer", "supplier", "commercial_terms", "delivery_requirements", "shipping_details", "approval"]:
+                if r.get(field):
+                    merge_dicts(master[field], r[field])
+
+        # Merge top-level simple fields
+        for r in results:
+            for field in ["rfq_number", "rfq_issue_date", "quotation_due_date", "date_extended_from", "po_number", "po_date", "invoice_number", "invoice_date", "shipment_id"]:
+                val = r.get(field)
+                if val is not None and val != "":
+                    master[field] = val
+
+        # Merge items list
+        for r in results:
+            items = r.get("items", []) or []
+            for item in items:
+                desc = item.get("description", "").lower().strip() if item.get("description") else ""
+                qty = item.get("quantity")
+                is_dup = False
+                for existing in master["items"]:
+                    e_desc = existing.get("description", "").lower().strip() if existing.get("description") else ""
+                    e_qty = existing.get("quantity")
+                    if desc == e_desc and qty == e_qty:
+                        is_dup = True
+                        break
+                if not is_dup:
+                    master["items"].append(item)
+
+        # Merge conflicts & missing fields & attachments
+        for r in results:
+            for list_field in ["conflicts", "missing_fields", "attachments"]:
+                val_list = r.get(list_field, []) or []
+                for item in val_list:
+                    if item not in master[list_field]:
+                        master[list_field].append(item)
+
+        # Average confidence scores
+        confidences = [r.get("llm_confidence_score") for r in results if r.get("llm_confidence_score") is not None]
+        if confidences:
+            master["llm_confidence_score"] = round(sum(confidences) / len(confidences), 2)
+
+        master["extracted_with_fallback_model"] = any(r.get("extracted_with_fallback_model", False) for r in results)
+        
+        # Determine overall status
+        if all(r.get("extraction_status") == "failed" for r in results) and results:
+            master["extraction_status"] = "failed"
+            reasons = sorted(list(set(r.get("failure_reason") for r in results if r.get("failure_reason"))))
+            if reasons:
+                master["failure_reason"] = "All individual attachment extractions failed: " + "; ".join(reasons)
+            else:
+                master["failure_reason"] = "All individual attachment extractions failed."
+
+        return master
+
     def run(self, email_metadata: Dict[str, Any], email_body: str, attachment_paths: List[Path]) -> Dict[str, Any]:
         """
         Runs the full extraction pipeline for a single email context.
-        State machine: PENDING -> EXTRACTING -> SUCCESS or FAILED.
-        Handles multi-file attachment batching.
+        Processes each attachment individually with the email metadata & body,
+        then merges the results into a single unified JSON output.
         """
         logger.info("Starting Intelligent Extraction Pipeline (State: EXTRACTING)...")
 
@@ -64,58 +187,92 @@ class PipelineOrchestrator:
                 logger.warning(f"Failed to extract {path.name}: {e}")
                 failed_files.append({"filename": path.name, "reason": str(e)})
 
-        # Step 5: Merge Context (supporting multi-chunk context strings)
-        unified_context = merge_context(email_metadata, email_body, attachments_data)
-        
-        if isinstance(unified_context, list):
-            context_chunks = unified_context
-            first_context = context_chunks[0]
-        else:
-            context_chunks = [unified_context]
-            first_context = unified_context
+        individual_results = []
 
-        # Step 4: Classify Document
-        logger.info("Classifying document type...")
-        classification = self.classifier.classify(first_context)
-        
-        # Pre-extraction Regex Pass
-        logger.info("Running pre-extraction heuristic pass...")
-        hints = run_pre_extraction_pass(first_context)
-        logger.debug(f"Pre-extracted hints: {hints}")
-
-        # Step 6 & 7: Extract Entities & Detect Conflicts (across chunks)
-        logger.info(f"Extracting entities. Intent identified as: {classification.intent}")
-        
-        merged_items = []
-        result_json = None
-        for chunk_idx, chunk_ctx in enumerate(context_chunks):
-            if chunk_idx > 0:
-                logger.info(f"Processing context chunk {chunk_idx + 1}/{len(context_chunks)} for item extraction...")
-            chunk_result = self.extractor.extract(chunk_ctx, classification.intent, hints=hints)
+        if not attachments_data:
+            logger.info("No attachments found. Processing email body context...")
+            unified_context = merge_context(email_metadata, email_body, [])
+            
+            if isinstance(unified_context, list):
+                context_chunks = unified_context
+                first_context = context_chunks[0]
+            else:
+                context_chunks = [unified_context]
+                first_context = unified_context
+                
+            logger.info("Classifying email context...")
+            classification = self.classifier.classify(first_context)
+            
+            logger.info("Running pre-extraction heuristic pass...")
+            hints = run_pre_extraction_pass(first_context)
+            
+            merged_items = []
+            result_json = None
+            for chunk_idx, chunk_ctx in enumerate(context_chunks):
+                chunk_result = self.extractor.extract(chunk_ctx, classification.intent, hints=hints)
+                if result_json is None:
+                    result_json = chunk_result
+                if chunk_result.get("items") and isinstance(chunk_result["items"], list):
+                    for item in chunk_result["items"]:
+                        if item not in merged_items:
+                            merged_items.append(item)
             if result_json is None:
-                result_json = chunk_result
-            if chunk_result.get("items") and isinstance(chunk_result["items"], list):
-                for item in chunk_result["items"]:
-                    if item not in merged_items:
-                        merged_items.append(item)
+                result_json = self.extractor.extract(first_context, classification.intent, hints=hints)
+            if result_json.get("extraction_status") == "success" and merged_items:
+                result_json["items"] = merged_items
+                
+            individual_results.append(result_json)
+        else:
+            for att in attachments_data:
+                logger.info(f"Processing attachment individually: {att['filename']}...")
+                attachment_context = merge_context(email_metadata, email_body, [att])
+                
+                if isinstance(attachment_context, list):
+                    context_chunks = attachment_context
+                    first_context = context_chunks[0]
+                else:
+                    context_chunks = [attachment_context]
+                    first_context = attachment_context
+                    
+                # Classify attachment context
+                logger.info(f"Classifying attachment {att['filename']}...")
+                classification = self.classifier.classify(first_context)
+                logger.info(f"Attachment '{att['filename']}' classified as intent: {classification.intent}")
+                
+                # Pre-extraction Regex Pass
+                logger.info("Running pre-extraction heuristic pass...")
+                hints = run_pre_extraction_pass(first_context)
+                
+                # Extract entities
+                merged_items = []
+                result_json = None
+                for chunk_idx, chunk_ctx in enumerate(context_chunks):
+                    chunk_result = self.extractor.extract(chunk_ctx, classification.intent, hints=hints)
+                    if result_json is None:
+                        result_json = chunk_result
+                    if chunk_result.get("items") and isinstance(chunk_result["items"], list):
+                        for item in chunk_result["items"]:
+                            if item not in merged_items:
+                                merged_items.append(item)
+                                
+                if result_json is None:
+                    result_json = self.extractor.extract(first_context, classification.intent, hints=hints)
+                    
+                if result_json.get("extraction_status") == "success" and merged_items:
+                    result_json["items"] = merged_items
+                    
+                individual_results.append(result_json)
 
-        if result_json is None:
-            result_json = self.extractor.extract(first_context, classification.intent, hints=hints)
-
-        if result_json.get("extraction_status") == "success" and merged_items:
-            result_json["items"] = merged_items
+        # Merge all individual results into a single master JSON
+        logger.info(f"Merging {len(individual_results)} individual extraction results...")
+        result_json = self._merge_extraction_results(individual_results, default_intent="other")
 
         # Attach per-file extraction issues
         result_json["failed_files"] = failed_files
 
         # Check extraction_status state machine
-        if result_json.get("extraction_status") == "failed" or result_json.get("extraction_failed"):
-            result_json["extraction_status"] = "failed"
-            fail_reason = result_json.get("failure_reason") or result_json.get("error") or "All LLM model attempts failed"
-            result_json["failure_reason"] = fail_reason
-            
-            logger.error(f"Entity extraction FAILED: {fail_reason}. Zeroing out procurement fields.")
-            
+        if result_json.get("extraction_status") == "failed":
+            logger.error("Entity extraction FAILED for all files. Zeroing out procurement fields.")
             result_json["buyer"] = None
             result_json["supplier"] = None
             result_json["items"] = None
@@ -127,8 +284,8 @@ class PipelineOrchestrator:
             result_json["extraction_status"] = "success"
             result_json["failure_reason"] = None
             
-            # Post-process document_type array for SUCCESS state
-            if "document_type" not in result_json or not isinstance(result_json.get("document_type"), list) or not result_json["document_type"]:
+            # Post-process document_type array if missing
+            if not result_json.get("document_type"):
                 doc_types = []
                 for att in attachments_data:
                     fn_lower = att["filename"].lower()
@@ -141,20 +298,6 @@ class PipelineOrchestrator:
                 if not doc_types:
                     doc_types = ["RFQ"]
                 result_json["document_type"] = doc_types
-
-            # Add LLM confidence score for SUCCESS state if missing
-            llm_conf = result_json.get("llm_confidence_score")
-            if llm_conf is None:
-                llm_conf = result_json.get("confidence_score")
-            if llm_conf is None:
-                llm_conf = classification.confidence
-            result_json["llm_confidence_score"] = llm_conf
-            if "confidence_score" in result_json:
-                result_json.pop("confidence_score", None)
-
-            fallback_used = result_json.get("extracted_with_fallback_model", False)
-            model_info = "fallback model" if fallback_used else "primary model"
-            logger.info(f"Entity extraction SUCCESS using {model_info}.")
 
         return self._save_outputs(email_metadata, email_body, result_json, attachment_paths)
 

@@ -55,23 +55,43 @@ def extract_pdf_text(filepath: Path) -> str:
                 page_content_parts.append(page_text.strip())
 
             # OCR embedded images on this page
+            has_embedded_images = False
             if fitz_doc and has_ocr and i < len(fitz_doc):
                 fitz_page = fitz_doc[i]
                 image_list = fitz_page.get_images(full=True)
-                for img_info in image_list:
-                    xref = img_info[0]
-                    try:
-                        base_image = fitz_doc.extract_image(xref)
-                        image_bytes = base_image.get("image")
-                        if image_bytes:
-                            pil_img = Image.open(io.BytesIO(image_bytes))
-                            processed_img = preprocess_image_for_ocr(pil_img)
-                            ocr_text = pytesseract.image_to_string(processed_img).strip()
-                            if ocr_text:
-                                ocr_chars += len(ocr_text)
-                                page_content_parts.append(f"[OCR from embedded image, page {i + 1}]: {ocr_text}")
-                    except Exception as img_err:
-                        logger.debug(f"Failed to process embedded image xref {xref} on page {i + 1}: {img_err}")
+                if image_list:
+                    has_embedded_images = True
+                    for img_info in image_list:
+                        xref = img_info[0]
+                        try:
+                            base_image = fitz_doc.extract_image(xref)
+                            image_bytes = base_image.get("image")
+                            if image_bytes:
+                                pil_img = Image.open(io.BytesIO(image_bytes))
+                                processed_img = preprocess_image_for_ocr(pil_img)
+                                ocr_text = pytesseract.image_to_string(processed_img).strip()
+                                if ocr_text:
+                                    ocr_chars += len(ocr_text)
+                                    page_content_parts.append(f"[OCR from embedded image]: {ocr_text}")
+                        except Exception as img_err:
+                            logger.debug(f"Failed to process embedded image xref {xref} on page {i + 1}: {img_err}")
+
+            # Intelligent Page-Level OCR Fallback:
+            # If the page yields NO native text AND NO successful OCR from embedded images,
+            # render the page as a high-DPI image dynamically and run OCR on it.
+            if not page_content_parts and fitz_doc and has_ocr and i < len(fitz_doc):
+                logger.info(f"Page {i + 1} yielded no native text or embedded images. Rendering page to image for OCR fallback...")
+                try:
+                    fitz_page = fitz_doc[i]
+                    pix = fitz_page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    processed_img = preprocess_image_for_ocr(img)
+                    ocr_text = pytesseract.image_to_string(processed_img).strip()
+                    if ocr_text:
+                        ocr_chars += len(ocr_text)
+                        page_content_parts.append(ocr_text)
+                except Exception as page_ocr_err:
+                    logger.warning(f"Page-level OCR fallback failed on page {i + 1}: {page_ocr_err}")
 
             if page_content_parts:
                 text_parts.append(f"--- Page {i + 1} ---\n" + "\n\n".join(page_content_parts))

@@ -47,14 +47,14 @@
       "items": {
         "type": "object",
         "properties": {
-          "line":           { "type": "integer" },
-          "part_number":    { "type": "string" },
-          "description":    { "type": "string" },
-          "quantity":       { "type": ["integer", "number"] },
-          "unit":           { "type": "string" },
-          "material_grade": { "type": "string" },
+          "line":           { "type": ["integer", "null"] },
+          "part_number":    { "type": ["string", "null"] },
+          "description":    { "type": ["string", "null"] },
+          "quantity":       { "type": ["integer", "number", "null"] },
+          "unit":           { "type": ["string", "null"] },
+          "material_grade": { "type": ["string", "null"] },
           "unit_price":     { "type": ["number", "null"] },
-          "currency":       { "type": "string" },
+          "currency":       { "type": ["string", "null"] },
           "line_total":     { "type": ["number", "null"] },
           "vendor_quotes": {
             "type": "array",
@@ -62,11 +62,11 @@
             "items": {
               "type": "object",
               "properties": {
-                "vendor_name":  { "type": "string" },
-                "quoted_price": { "type": "number" },
+                "vendor_name":  { "type": ["string", "null"] },
+                "quoted_price": { "type": ["number", "null"] },
                 "landed_price": { "type": ["number", "null"] },
-                "rank":         { "type": "string", "description": "L1 = lowest, L2, L3... as shown in source" },
-                "is_selected":  { "type": "boolean", "description": "true only for winning/lowest vendor" }
+                "rank":         { "type": ["string", "null"], "description": "L1 = lowest, L2, L3... as shown in source" },
+                "is_selected":  { "type": ["boolean", "null"], "description": "true only for winning/lowest vendor" }
               },
               "required": ["vendor_name", "quoted_price", "rank", "is_selected"]
             }
@@ -91,7 +91,7 @@
         "delivery_location": { "type": "string" },
         "required_delivery_date": { "type": "string" },
         "delivery_split": {
-          "type": "array",
+          "type": ["array", "null"],
           "items": {
             "type": "object",
             "properties": {
@@ -101,7 +101,7 @@
             }
           }
         },
-        "partial_shipments_allowed": { "type": "boolean" }
+        "partial_shipments_allowed": { "type": ["boolean", "null"] }
       }
     },
     "shipping_details": {

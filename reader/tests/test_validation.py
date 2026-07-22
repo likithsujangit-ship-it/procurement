@@ -131,8 +131,8 @@ def test_invalid_date_format(rfq_payload):
 def test_float_quantity(rfq_payload):
     rfq_payload["items"][0]["quantity"] = 100.0
     is_valid, errors, warnings, schema = validate_extraction(rfq_payload)
-    assert is_valid is False
-    assert any("expected integer" in err or "is not of type 'integer'" in err for err in errors)
+    assert is_valid is True
+    assert len(errors) == 0
 
 def test_cross_field_attachment_type(rfq_payload):
     rfq_payload["attachments"][0]["type"] = "BOM"

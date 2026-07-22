@@ -39,7 +39,7 @@ def test_preflight_quota_check_fails_fast():
 
 
 def test_single_call_attachment_batching(tmp_path, monkeypatch):
-    """Verify multiple attachments are combined into a single context with file headers."""
+    """Verify multiple attachments are processed individually with file headers."""
     f1 = tmp_path / "PO.pdf"
     f2 = tmp_path / "Specs.xlsx"
     f1.write_bytes(b"%PDF-1.4 PO content batch test")
@@ -61,8 +61,11 @@ def test_single_call_attachment_batching(tmp_path, monkeypatch):
 
     orchestrator.run(metadata, "Order details attached", [f1, f2])
 
-    # Assert extract was called only once for both files
-    assert mock_extract.call_count == 1
-    passed_ctx = mock_extract.call_args[0][0]
-    assert "=== FILE: PO.pdf ===" in passed_ctx
-    assert "=== FILE: Specs.xlsx ===" in passed_ctx
+    # Assert extract was called twice (once for each file)
+    assert mock_extract.call_count == 2
+    
+    passed_ctx_1 = mock_extract.call_args_list[0][0][0]
+    passed_ctx_2 = mock_extract.call_args_list[1][0][0]
+    
+    assert "=== ATTACHMENT: PO.pdf ===" in passed_ctx_1 or "=== FILE: PO.pdf ===" in passed_ctx_1
+    assert "=== ATTACHMENT: Specs.xlsx ===" in passed_ctx_2 or "=== FILE: Specs.xlsx ===" in passed_ctx_2

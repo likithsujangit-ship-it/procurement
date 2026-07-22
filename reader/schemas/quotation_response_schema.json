@@ -20,22 +20,22 @@
       "items": {
         "type": "object",
         "properties": {
-          "part_number":  { "type": "string" },
-          "description":  { "type": "string" },
-          "quantity":     { "type": ["integer", "number"] },
-          "unit_price":   { "type": "number" },
-          "total_price":  { "type": "number" },
+          "part_number":  { "type": ["string", "null"] },
+          "description":  { "type": ["string", "null"] },
+          "quantity":     { "type": ["integer", "number", "null"] },
+          "unit_price":   { "type": ["number", "null"] },
+          "total_price":  { "type": ["number", "null"] },
           "vendor_quotes": {
-            "type": "array",
+            "type": ["array", "null"],
             "description": "All vendor bids for this item from a price comparison/evaluation sheet.",
             "items": {
               "type": "object",
               "properties": {
                 "vendor_name":  { "type": "string" },
-                "quoted_price": { "type": "number" },
+                "quoted_price": { "type": ["number", "null"] },
                 "landed_price": { "type": ["number", "null"] },
-                "rank":         { "type": "string", "description": "L1 = lowest, L2, L3... as shown in source" },
-                "is_selected":  { "type": "boolean", "description": "true only for winning/lowest vendor" }
+                "rank":         { "type": ["string", "null"], "description": "L1 = lowest, L2, L3... as shown in source" },
+                "is_selected":  { "type": ["boolean", "null"], "description": "true only for winning/lowest vendor" }
               },
               "required": ["vendor_name", "quoted_price", "rank", "is_selected"]
             }

@@ -16,7 +16,7 @@ logger = setup_logger("token_tracker")
 
 READER_DIR = Path(__file__).resolve().parent.parent
 USAGE_FILE = READER_DIR / "token_usage.json"
-DEFAULT_LIMIT = 100000  # Default Groq TPD limit on free tier
+DEFAULT_LIMIT = 1000000  # Default limit set higher to accommodate higher tier keys before hitting actual 429s
 
 
 def _get_today_str() -> str:
@@ -75,20 +75,26 @@ def save_token_usage(data: dict) -> None:
 def update_usage_from_429_error(error_message: str) -> Tuple[int, int]:
     """
     Parses 'Used X' and 'Limit Y' from a 429 error message string to update daily token usage.
+    Only updates if it is a daily limit (TPD) error to avoid corrupting limits with per-minute limits (TPM).
     Returns: (used_tokens, limit_tokens)
     """
     data = load_token_usage()
     
-    used_match = re.search(r'\bUsed\s+(\d+)\b', error_message, re.I)
-    limit_match = re.search(r'\bLimit\s+(\d+)\b', error_message, re.I)
+    # Check if the error is actually a daily limit error
+    if "tpd" in error_message.lower() or "tokens per day" in error_message.lower() or re.search(r'\bday\b', error_message, re.I):
+        used_match = re.search(r'\bUsed\s+(\d+)\b', error_message, re.I)
+        limit_match = re.search(r'\bLimit\s+(\d+)\b', error_message, re.I)
 
-    if used_match:
-        data["used_tokens"] = int(used_match.group(1))
-    if limit_match:
-        data["limit_tokens"] = int(limit_match.group(1))
+        if used_match:
+            data["used_tokens"] = int(used_match.group(1))
+        if limit_match:
+            data["limit_tokens"] = int(limit_match.group(1))
 
-    save_token_usage(data)
-    logger.info(f"[token_tracker] Updated token quota from 429 response: Used {data['used_tokens']} / Limit {data['limit_tokens']}")
+        save_token_usage(data)
+        logger.info(f"[token_tracker] Updated token quota from daily 429 response: Used {data['used_tokens']} / Limit {data['limit_tokens']}")
+    else:
+        logger.info(f"[token_tracker] Ignored per-minute/request 429 response limit: {error_message}")
+        
     return data["used_tokens"], data["limit_tokens"]
 
 

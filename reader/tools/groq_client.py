@@ -54,7 +54,7 @@ class GroqClient:
             model = "llama-3.3-70b-versatile"
 
         models_to_try = [model]
-        for alt in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192"):
+        for alt in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.6-27b", "openai/gpt-oss-20b"):
             if alt not in models_to_try:
                 models_to_try.append(alt)
 

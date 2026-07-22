@@ -108,11 +108,11 @@ def validate_extraction(data: dict) -> tuple[bool, list[str], list[str], str]:
         if base_field not in allowed_missing_fields:
             warnings.append(f"missing_fields contains '{missing_field}' which is not a recognized top-level schema field")
 
-    # 6. JSON serialization check for item quantities (ensure integer quantity)
+    # 6. JSON serialization check for item quantities (ensure numeric quantity)
     for i, item in enumerate(data.get("items", [])):
         q = item.get("quantity")
-        if q is not None and not isinstance(q, int):
-            errors.append(f"items[{i}].quantity: expected integer, got {type(q).__name__} ({q})")
+        if q is not None and not isinstance(q, (int, float)):
+            errors.append(f"items[{i}].quantity: expected integer/number, got {type(q).__name__} ({q})")
             
     is_valid = len(errors) == 0
     return is_valid, errors, warnings, schema_used

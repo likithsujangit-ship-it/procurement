@@ -35,7 +35,8 @@ class EntityExtractor:
         self.fallback_models = [
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
-            "llama3-70b-8192"
+            "qwen/qwen3.6-27b",
+            "openai/gpt-oss-20b"
         ]
 
     def _load_schema_for_intent(self, intent: str) -> dict:

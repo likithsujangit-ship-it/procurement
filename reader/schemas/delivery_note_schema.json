@@ -23,7 +23,7 @@
         "properties": {
           "part_number": { "type": "string" },
           "description": { "type": "string" },
-          "items_shipped": { "type": "integer" }
+          "items_shipped": { "type": ["integer", "number", "null"] }
         },
         "required": ["description", "items_shipped"]
       }

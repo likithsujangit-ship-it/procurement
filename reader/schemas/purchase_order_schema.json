@@ -52,7 +52,7 @@
         "properties": {
           "part_number": { "type": "string" },
           "description": { "type": "string" },
-          "quantity": { "type": "integer", "minimum": 1 },
+          "quantity": { "type": ["integer", "number", "null"] },
           "unit": { "type": "string" },
           "material_spec": { "type": "string" }
         },
@@ -66,13 +66,23 @@
         "payment_terms": { "type": "string" },
         "incoterms": { "type": "string" },
         "currency": { "type": "string" },
-        "total_order_value": { "type": "number" },
-        "delivery_schedule": { "type": ["string", "array"] }
+        "total_order_value": { "type": ["number", "null"] },
+        "delivery_schedule": { "type": ["string", "array"] },
+        "gst_rate": { "type": "string" },
+        "tds_rate": { "type": "string" },
+        "security_deposit": { "type": "string" },
+        "performance_bank_guarantee": { "type": "string" },
+        "liquidated_damages": { "type": "string" },
+        "delivery_requirement": { "type": "string" },
+        "landed_price_methodology": { "type": "string" }
       },
       "required": ["payment_terms", "incoterms", "currency", "total_order_value", "delivery_schedule"],
       "additionalProperties": false
     },
     "shipping_details": {
+      "type": "object"
+    },
+    "approval": {
       "type": "object"
     },
     "attachments": {

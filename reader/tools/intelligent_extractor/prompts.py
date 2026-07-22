@@ -99,7 +99,8 @@ CLASSIFICATION_PROMPT = """Analyze the following unified context (email and atta
 CRITICAL INSTRUCTIONS:
 1. Primary signal: The email subject line and body content.
 2. Secondary signal: Attachment filenames and content.
-3. Supported intents: "request_for_quotation", "purchase_order_issuance", "shipment_dispatch_notification", "invoice_only", "other".
+3. Supported intents: "request_for_quotation", "purchase_order_issuance", "shipment_dispatch_notification", "invoice_only", "hybrid_procurement", "other".
+4. If a single document contains elements of multiple document types (e.g., both a Purchase Order and an Invoice, or both an RFQ and comparative quotes), classify it as "hybrid_procurement" so the system extracts all fields using the master schema.
 
 Return ONLY a valid JSON object in this format:
 {{

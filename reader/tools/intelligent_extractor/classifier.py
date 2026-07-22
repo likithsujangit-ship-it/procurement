@@ -16,13 +16,20 @@ class DocumentClassifier:
     def _classify_with_regex(self, unified_context: str) -> ExtractedDocument:
         """Rule-based regex fallback classification when LLM call fails or hits rate limits."""
         text = unified_context.lower()
-        if any(w in text for w in ("request for quotation", "rfq", "quote request", "quotation")):
+        # Check for hybrid first (both PO and Invoice/RFQ keywords present)
+        has_po = any(w in text for w in ("purchase order", "po#", "po number", "po_"))
+        has_invoice = any(w in text for w in ("invoice", "tax invoice", "bill", "payment request"))
+        has_rfq = any(w in text for w in ("request for quotation", "rfq", "quote request", "quotation"))
+        
+        if (has_po and has_invoice) or (has_rfq and has_po) or (has_rfq and has_invoice):
+            intent = "hybrid_procurement"
+        elif has_rfq:
             intent = "request_for_quotation"
-        elif any(w in text for w in ("purchase order", "po#", "po number", "po_")):
+        elif has_po:
             intent = "purchase_order_issuance"
         elif any(w in text for w in ("shipment", "dispatch", "tracking", "delivery note", "bill of lading")):
             intent = "shipment_dispatch_notification"
-        elif any(w in text for w in ("invoice", "tax invoice", "bill", "payment request")):
+        elif has_invoice:
             intent = "invoice_only"
         else:
             intent = "other"

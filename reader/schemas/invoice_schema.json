@@ -21,10 +21,10 @@
         "type": "object",
         "properties": {
           "description": { "type": "string" },
-          "quantity": { "type": "integer" },
-          "unit_price": { "type": "number" },
-          "tax_amount": { "type": "number" },
-          "total": { "type": "number" }
+          "quantity": { "type": ["integer", "number", "null"] },
+          "unit_price": { "type": ["number", "null"] },
+          "tax_amount": { "type": ["number", "null"] },
+          "total": { "type": ["number", "null"] }
         },
         "required": ["description", "quantity", "unit_price", "total"]
       }
@@ -33,7 +33,7 @@
       "type": "object",
       "properties": {
         "payment_terms": { "type": "string" },
-        "amount_due": { "type": "number" },
+        "amount_due": { "type": ["number", "null"] },
         "currency": { "type": "string" }
       },
       "required": ["amount_due", "currency"]
