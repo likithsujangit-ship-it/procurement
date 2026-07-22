@@ -25,6 +25,16 @@ def _get_today_str() -> str:
 
 def load_token_usage() -> dict:
     """Loads token usage data from reader/token_usage.json, resetting counter if new day or new API key."""
+    # Dynamically reload dotenv to catch any manual changes to .env on the fly
+    from dotenv import load_dotenv
+    import os
+    env_path = READER_DIR / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path, override=True)
+        new_key = os.getenv("GROQ_API_KEY", "")
+        if new_key:
+            Config.GROQ_API_KEY = new_key
+            
     today = _get_today_str()
     current_key_prefix = Config.GROQ_API_KEY[:15] if Config.GROQ_API_KEY else "none"
 
