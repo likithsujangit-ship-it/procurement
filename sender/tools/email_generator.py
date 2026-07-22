@@ -1,6 +1,6 @@
 """
 Email Generator Module for EMAIL SENDER.
-Generates professional plain text and HTML emails using Groq LLM (Llama 3.3 70B) 
+Generates professional plain text and HTML emails using Groq LLM (llama-3.3-70b-versatile) 
 with customizable tones and templates.
 """
 
@@ -21,16 +21,7 @@ def generate_email_content(
 ) -> Dict[str, str]:
     """
     Generates subject, plain text body, and HTML body for an email.
-    Uses Groq API for generation, with a robust fallback.
-    
-    Args:
-        subject_hint: Description or context of the subject.
-        body_hint: Core message or instructions for the body.
-        tone: The target style (e.g., 'casual', 'formal', 'meeting-request').
-        sender_name: Optional name to sign the email.
-        
-    Returns:
-        A dict containing 'subject', 'text_body', and 'html_body'.
+    Uses Groq API for generation, with a robust template fallback.
     """
     logger.info(f"Generating email content with tone '{tone}' using Groq.")
     
@@ -39,7 +30,7 @@ def generate_email_content(
             return _generate_with_groq(subject_hint, body_hint, tone, sender_name)
         except Exception as e:
             logger.error(f"Groq email generation failed: {e}. Falling back to template generation.")
-            
+
     return _generate_with_template(subject_hint, body_hint, tone, sender_name)
 
 
@@ -51,9 +42,8 @@ def _generate_with_groq(
 ) -> Dict[str, str]:
     """Uses Groq Llama 3.3 70B to generate structured plain-text and HTML email."""
     client = Groq(api_key=Config.GROQ_API_KEY)
-    
     sender_sig = sender_name or "AI Assistant"
-    
+
     system_prompt = (
         "You are an expert copywriter and email assistant. "
         "Your task is to write a highly professional, well-formatted email based on user inputs.\n\n"
@@ -67,12 +57,12 @@ def _generate_with_groq(
         f"Apply the following tone: {tone}\n"
         f"Sign the email as: {sender_sig}\n"
     )
-    
+
     user_prompt = (
         f"Subject context/hint: {subject_hint}\n"
         f"Body context/hint: {body_hint}\n"
     )
-    
+
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
@@ -82,10 +72,9 @@ def _generate_with_groq(
         temperature=0.7,
         response_format={"type": "json_object"}
     )
-    
+
     raw_content = response.choices[0].message.content.strip()
-    logger.debug(f"Raw LLM Email Output: {raw_content}")
-    
+    logger.debug(f"Raw Groq Email Output: {raw_content}")
     return json.loads(raw_content)
 
 
@@ -101,11 +90,9 @@ def _generate_with_template(
     sender_sig = sender_name or "AI Assistant"
     subject = subject_hint or f"Notification: {tone.replace('-', ' ').title()}"
     
-    # Simple formatting of the body hint
     paragraphs = [p.strip() for p in body_hint.split("\n") if p.strip()]
     formatted_paragraphs = "\n\n".join(paragraphs)
     
-    # Build text body
     text_body = (
         f"Hello,\n\n"
         f"{formatted_paragraphs}\n\n"
@@ -113,7 +100,6 @@ def _generate_with_template(
         f"{sender_sig}"
     )
     
-    # Build premium styled HTML body
     html_paragraphs = "".join(f"<p style='margin: 0 0 16px 0;'>{p}</p>" for p in paragraphs)
     html_body = f"""<!DOCTYPE html>
 <html>
@@ -126,13 +112,11 @@ def _generate_with_template(
     <tr>
       <td align="center">
         <table width="600" border="0" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e9ecef;">
-          <!-- Header -->
           <tr>
             <td style="background-color: #0A2540; padding: 30px 40px; text-align: left;">
               <h1 style="color: #ffffff; font-size: 22px; margin: 0; font-weight: 600;">{subject}</h1>
             </td>
           </tr>
-          <!-- Body -->
           <tr>
             <td style="padding: 40px; color: #2D3142; font-size: 16px; line-height: 1.6; text-align: left;">
               {html_paragraphs}
@@ -143,7 +127,6 @@ def _generate_with_template(
               </p>
             </td>
           </tr>
-          <!-- Footer -->
           <tr>
             <td style="background-color: #f1f3f5; padding: 20px 40px; text-align: center; font-size: 12px; color: #868e96;">
               This email was generated and sent by EMAIL_AI.

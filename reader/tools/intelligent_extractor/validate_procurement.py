@@ -1,168 +1,364 @@
 """
 Procurement Completeness Validation Engine for EMAIL_AI.
-Audits extracted document JSON against mandatory procurement process requirements,
-calculates completeness score, detects missing procurement fields, and sets validation status.
+Calculates completeness score and status strictly based on document-specific schemas.
+Respects extraction_status state machine and avoids false confidence defaults.
 """
 
+import json
+from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
-def audit_procurement_completeness(result_json: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Performs a thorough procurement completeness audit on the extracted result_json.
-    Updates result_json in-place with:
-      - 'procurement_status'
-      - 'validation'
-      - 'missing_procurement_information'
-      - 'recommendation'
-    Returns the updated result_json.
-    """
-    intent = result_json.get("intent", "other")
-    doc_types = result_json.get("document_type", [])
-    primary_doc_type = doc_types[0] if doc_types else "Procurement Document"
-    
-    buyer = result_json.get("buyer") or {}
-    supplier = result_json.get("supplier") or {}
-    items = result_json.get("items") or []
-    comm_terms = result_json.get("commercial_terms") or {}
-    deliv_req = result_json.get("delivery_requirements") or {}
-    approval = result_json.get("approval") or {}
-    conflicts = result_json.get("conflicts") or []
 
-    missing_procurement_info: List[Dict[str, str]] = []
-    
-    # 1. Define mandatory fields based on intent / document_type
-    is_po = intent == "purchase_order_issuance" or any("po" in dt.lower() or "purchase" in dt.lower() for dt in doc_types)
-    is_rfq = intent == "request_for_quotation" or any("rfq" in dt.lower() or "quotation" in dt.lower() for dt in doc_types)
-    is_invoice = intent == "invoice_only" or any("invoice" in dt.lower() for dt in doc_types)
-    is_shipment = intent == "shipment_dispatch_notification" or any("delivery" in dt.lower() or "shipment" in dt.lower() for dt in doc_types)
+REQUIRED_FIELDS_CONFIG_PATH = Path(__file__).with_name("required_fields_config.json")
 
-    mandatory_checks: List[Tuple[str, bool, str]] = []
 
-    if is_po:
-        # Mandatory fields for Purchase Order
-        mandatory_checks = [
-            ("Buyer", bool(buyer.get("company_name") or buyer.get("contact_name") or buyer.get("email")), "Buyer company or contact details are missing"),
-            ("Supplier", bool(supplier.get("company_name") or supplier.get("contact_name") or supplier.get("email")), "Supplier company or contact details are missing"),
-            ("PO Number", bool(result_json.get("po_number")), "PO reference number is absent"),
-            ("PO Date", bool(result_json.get("rfq_issue_date") or result_json.get("date")), "PO issuance date is missing"),
-            ("Currency", bool(comm_terms.get("currency")), "Currency (e.g. INR, USD) is not specified"),
-            ("Item List", len(items) > 0, "No line items are listed in the order"),
-            ("Quantity", any(item.get("quantity") is not None for item in items) if items else False, "Item quantities are missing"),
-            ("Unit", any(item.get("unit") for item in items) if items else False, "Unit of measurement (UOM) is missing"),
-            ("Unit Price", any(item.get("unit_price") or item.get("price") for item in items) if items else False, "Item unit prices are missing"),
-            ("Total Value", any(item.get("total_price") or item.get("line_total") for item in items) or bool(comm_terms.get("total_value")), "Total order value or line item totals are missing"),
-            ("Delivery Address", bool(deliv_req.get("delivery_location") or buyer.get("address")), "Delivery shipping address is missing"),
-            ("Delivery Schedule", bool(deliv_req.get("required_delivery_date") or deliv_req.get("delivery_split")), "Delivery schedule or required delivery date is missing"),
-            ("Payment Terms", bool(comm_terms.get("payment_terms")), "Payment terms (e.g., Net 30, 100% advance) are missing"),
-            ("Taxes / GST", bool(buyer.get("gstin") or supplier.get("gstin") or comm_terms.get("taxes_gst") or comm_terms.get("tax")), "Taxes or GSTIN details are missing"),
-            ("Technical Specifications", any(item.get("material_grade") or item.get("description") for item in items) if items else False, "Technical specifications or material grades are missing"),
-            ("Warranty", bool(comm_terms.get("warranty")), "Warranty terms are missing"),
-            ("Inspection Requirements", bool(comm_terms.get("inspection_requirements") or approval.get("inspection")), "Inspection requirements are missing"),
-            ("Commercial Terms", bool(comm_terms.get("incoterms") or comm_terms.get("payment_terms")), "Commercial terms (Incoterms or payment conditions) are missing"),
-            ("Authorized Signatory", bool(approval.get("approved_by") or buyer.get("contact_name")), "Authorized signatory details are missing"),
-            ("Terms & Conditions", bool(comm_terms.get("terms_and_conditions") or comm_terms.get("payment_terms")), "Standard procurement terms and conditions are missing"),
-        ]
+def load_document_field_config() -> Dict[str, Dict[str, List[str]]]:
+    """Load the required/optional field definitions shared by all completeness checks."""
+    with REQUIRED_FIELDS_CONFIG_PATH.open(encoding="utf-8") as config_file:
+        return json.load(config_file)
 
-    elif is_rfq:
-        # Mandatory fields for RFQ
-        mandatory_checks = [
-            ("Buyer", bool(buyer.get("company_name") or buyer.get("contact_name") or buyer.get("email")), "Buyer company or procurement manager details missing"),
-            ("Supplier", bool(supplier.get("company_name") or supplier.get("contact_name") or supplier.get("email")), "Supplier company or contact details missing"),
-            ("RFQ Number", bool(result_json.get("rfq_number")), "RFQ reference number missing"),
-            ("RFQ Issue Date", bool(result_json.get("rfq_issue_date")), "RFQ issue date missing"),
-            ("Quotation Due Date", bool(result_json.get("quotation_due_date")), "Quotation submission deadline date missing"),
-            ("Item List", len(items) > 0, "No line items found in RFQ"),
-            ("Part Number", any(item.get("part_number") for item in items) if items else False, "Part numbers missing for requested items"),
-            ("Description", any(item.get("description") for item in items) if items else False, "Item descriptions missing"),
-            ("Quantity", any(item.get("quantity") is not None for item in items) if items else False, "Requested quantities missing"),
-            ("Unit", any(item.get("unit") for item in items) if items else False, "Unit of measure missing"),
-            ("Material Grade", any(item.get("material_grade") for item in items) if items else False, "Material grade or technical specification missing"),
-            ("Payment Terms", bool(comm_terms.get("payment_terms")), "Payment terms missing"),
-            ("Incoterms", bool(comm_terms.get("incoterms")), "Incoterms delivery condition missing"),
-            ("Currency", bool(comm_terms.get("currency")), "Currency missing"),
-            ("Delivery Location", bool(deliv_req.get("delivery_location")), "Destination delivery location missing"),
-            ("Required Delivery Date", bool(deliv_req.get("required_delivery_date")), "Required delivery date missing"),
-            ("Warranty", bool(comm_terms.get("warranty")), "Warranty requirements missing"),
-        ]
 
-    elif is_invoice:
-        # Mandatory fields for Invoice
-        mandatory_checks = [
-            ("Buyer", bool(buyer.get("company_name") or buyer.get("contact_name")), "Buyer billing details missing"),
-            ("Supplier", bool(supplier.get("company_name") or supplier.get("contact_name")), "Supplier billing details missing"),
-            ("Invoice Number", bool(result_json.get("invoice_number")), "Invoice number missing"),
-            ("Invoice Date", bool(result_json.get("rfq_issue_date")), "Invoice date missing"),
-            ("Item List", len(items) > 0, "No invoiced line items listed"),
-            ("Quantity", any(item.get("quantity") is not None for item in items) if items else False, "Invoiced quantities missing"),
-            ("Unit Price", any(item.get("unit_price") or item.get("price") for item in items) if items else False, "Unit prices missing"),
-            ("Total Value", any(item.get("total_price") or item.get("line_total") for item in items) or bool(comm_terms.get("total_value")), "Total invoice amount missing"),
-            ("Payment Terms", bool(comm_terms.get("payment_terms")), "Invoice payment terms missing"),
-            ("Taxes / GST", bool(buyer.get("gstin") or supplier.get("gstin") or comm_terms.get("taxes_gst")), "Taxes or GSTIN missing"),
-        ]
+DOCUMENT_FIELD_CONFIG = load_document_field_config()
+ENVELOPE_MISMATCH = "envelope_mismatch"
+DATA_CONFLICT = "data_conflict"
+ENVELOPE_MISMATCH_FIELDS = {
+    "sender_vs_buyer_email",
+    "sender_vs_supplier_email",
+    "envelope_sender_vs_buyer_email",
+    "envelope_sender_vs_supplier_email",
+}
 
+
+def get_required_fields(doc_type: str) -> List[str]:
+    return DOCUMENT_FIELD_CONFIG.get(doc_type, {}).get("required_fields", [])
+
+
+def get_optional_fields(doc_type: str) -> List[str]:
+    return DOCUMENT_FIELD_CONFIG.get(doc_type, {}).get("optional_fields", [])
+
+def get_nested_field(data: dict, path: str) -> Any:
+    parts = path.split(".")
+    curr = data
+    for part in parts:
+        if not isinstance(curr, dict):
+            return None
+        curr = curr.get(part)
+        if curr is None:
+            return None
+    return curr
+
+def is_val_present(v: Any) -> bool:
+    if v is None:
+        return False
+    if isinstance(v, str):
+        return bool(v.strip())
+    if isinstance(v, list):
+        return len(v) > 0
+    if isinstance(v, dict):
+        return len(v) > 0 and any(is_val_present(sub_v) for sub_v in v.values())
+    return bool(v)
+
+def is_field_present(data: Dict[str, Any], path: str) -> bool:
+    val = get_nested_field(data, path)
+    return is_val_present(val)
+
+def check_field(data: Dict[str, Any], field: str) -> bool:
+    if field == "rfq_issue_date":
+        return is_field_present(data, "rfq_issue_date") or is_field_present(data, "rfq_date") or is_field_present(data, "issue_date") or is_field_present(data, "date")
+    if field == "po_date":
+        return is_field_present(data, "po_date") or is_field_present(data, "date")
+    if field == "invoice_date":
+        return is_field_present(data, "invoice_date") or is_field_present(data, "date")
+    if field == "quotation_date":
+        return is_field_present(data, "quotation_date") or is_field_present(data, "date")
+    if field == "approval":
+        return is_field_present(data, "approval") or is_field_present(data, "approval_status")
+    if field == "commercial_terms.payment_terms":
+        return is_field_present(data, "commercial_terms.payment_terms") or is_field_present(data, "payment_terms")
+    if field == "commercial_terms.amount_due":
+        return is_field_present(data, "commercial_terms.amount_due") or is_field_present(data, "commercial_terms.total_value") or is_field_present(data, "total_amount")
+    return is_field_present(data, field)
+
+def _conflict_value(conflict: Any, attribute: str, default: Any = None) -> Any:
+    if isinstance(conflict, dict):
+        return conflict.get(attribute, default)
+    return getattr(conflict, attribute, default)
+
+
+def classify_conflict_category(conflict: Any) -> str:
+    """Classify forwarded-email mismatches separately from source-data conflicts."""
+    field = str(_conflict_value(conflict, "field", "")).lower()
+    if field in ENVELOPE_MISMATCH_FIELDS or (field.startswith("sender_vs_") and "email" in field):
+        return ENVELOPE_MISMATCH
+
+    category = _conflict_value(conflict, "category")
+    if category in (ENVELOPE_MISMATCH, DATA_CONFLICT):
+        return category
+    return DATA_CONFLICT
+
+
+def classify_conflict_severity(conflict: Any) -> str:
+    """Return the severity used only for penalizable data conflicts."""
+    if classify_conflict_category(conflict) == ENVELOPE_MISMATCH:
+        return "informational"
+
+    if isinstance(conflict, dict):
+        severity = conflict.get("severity")
+        if severity in ("critical", "medium", "minor"):
+            return severity
+        field = str(conflict.get("field", "")).lower()
     else:
-        # Default mandatory checks for general procurement documents
-        mandatory_checks = [
-            ("Buyer", bool(buyer.get("company_name") or buyer.get("contact_name")), "Buyer contact details missing"),
-            ("Supplier", bool(supplier.get("company_name") or supplier.get("contact_name")), "Supplier contact details missing"),
-            ("Item List", len(items) > 0, "Line items missing"),
-            ("Quantity", any(item.get("quantity") is not None for item in items) if items else False, "Item quantities missing"),
-            ("Commercial Terms", bool(comm_terms.get("payment_terms") or comm_terms.get("incoterms")), "Commercial terms missing"),
-        ]
+        severity = getattr(conflict, "severity", None)
+        if severity in ("critical", "medium", "minor"):
+            return severity
+        field = str(getattr(conflict, "field", "")).lower()
 
-    # Evaluate checks
-    total_checks = len(mandatory_checks)
-    passed_checks = 0
+    critical_keywords = ["price", "total", "amount", "value", "quantity", "qty", "buyer", "supplier", "part_number", "item", "identity"]
+    medium_keywords = ["date", "due_date", "payment_terms", "incoterms", "terms"]
+    
+    if any(k in field for k in critical_keywords):
+        return "critical"
+    elif any(k in field for k in medium_keywords):
+        return "medium"
+    else:
+        return "minor"
 
-    for field_name, is_present, reason in mandatory_checks:
-        if is_present:
-            passed_checks += 1
+
+def calculate_conflict_penalty(conflicts: List[Any]) -> int:
+    """Apply existing severity penalties to data conflicts, never envelope metadata."""
+    data_conflicts = [
+        conflict for conflict in conflicts
+        if classify_conflict_category(conflict) == DATA_CONFLICT
+    ]
+    critical_conflicts = sum(1 for conflict in data_conflicts if classify_conflict_severity(conflict) == "critical")
+    medium_conflicts = sum(1 for conflict in data_conflicts if classify_conflict_severity(conflict) == "medium")
+    minor_conflicts = sum(1 for conflict in data_conflicts if classify_conflict_severity(conflict) == "minor")
+    return 10 * critical_conflicts + 5 * medium_conflicts + 2 * minor_conflicts
+
+def evaluate_doc_for_type(data: dict, doc_type: str) -> dict:
+    if data.get("extraction_status") == "failed":
+        return {
+            "score": 0,
+            "status": "FAILED",
+            "present": 0,
+            "total": 7,
+            "missing": ["extraction_failed"]
+        }
+
+    required_fields = get_required_fields(doc_type)
+
+    # Compute completeness
+    present_required_fields = 0
+    missing_required_fields = []
+    
+    for f in required_fields:
+        if check_field(data, f):
+            present_required_fields += 1
         else:
-            missing_procurement_info.append({
-                "field": field_name,
-                "reason": reason
-            })
+            missing_required_fields.append(f)
+            
+    total_required_fields = len(required_fields)
+    raw_score = (present_required_fields / total_required_fields) * 100 if total_required_fields > 0 else 100
 
-    # Calculate Completeness Score (0 - 100)
-    raw_score = (passed_checks / total_checks) * 100 if total_checks > 0 else 100
+    # Apply penalties
+    conflicts = data.get("conflicts", []) or []
+    conflict_penalty = calculate_conflict_penalty(conflicts)
     
-    # Deduct 5 points per conflict
-    conflict_penalty = len(conflicts) * 5
-    
-    # Adjust score based on confidence
-    conf = result_json.get("confidence_score", 1.0)
-    if conf < 1.0:
-        raw_score *= conf
+    confidence_raw = data.get("llm_confidence_score") if data.get("llm_confidence_score") is not None else data.get("confidence_score")
+    if confidence_raw is None:
+        confidence_penalty = 20
+    else:
+        try:
+            confidence = float(confidence_raw)
+            if confidence >= 0.95:
+                confidence_penalty = 0
+            elif confidence >= 0.85:
+                confidence_penalty = 5
+            elif confidence >= 0.75:
+                confidence_penalty = 10
+            else:
+                confidence_penalty = 15
+        except Exception:
+            confidence_penalty = 20
 
-    completeness_score = max(0, min(100, int(round(raw_score - conflict_penalty))))
+    final_score = max(0, min(100, int(round(raw_score - conflict_penalty - confidence_penalty))))
 
-    # Determine status & validation
-    is_complete = (len(missing_procurement_info) == 0) and (len(conflicts) == 0) and (completeness_score == 100)
-    
-    procurement_status = {
-        "status": "COMPLETE" if is_complete else "INCOMPLETE",
-        "completeness_score": completeness_score
+    if final_score >= 95:
+        status = "COMPLETE"
+    elif final_score >= 80:
+        status = "MOSTLY_COMPLETE"
+    elif final_score >= 60:
+        status = "PARTIAL"
+    else:
+        status = "INCOMPLETE"
+
+    return {
+        "score": final_score,
+        "status": status,
+        "present": present_required_fields,
+        "total": total_required_fields,
+        "missing": missing_required_fields
     }
 
-    if is_complete:
-        validation = {
-            "status": "PASSED",
-            "reason": ""
-        }
-        recommendation = "The procurement document is complete and ready for further processing."
-    else:
-        missing_names = [item["field"] for item in missing_procurement_info[:3]]
-        reason_msg = f"Missing {', '.join(missing_names)}" if missing_names else "Document contains critical procurement conflicts or incomplete data"
-        validation = {
+def audit_procurement_completeness(result_json: Dict[str, Any]) -> Dict[str, Any]:
+    if result_json.get("extraction_status") == "failed":
+        fail_reason = result_json.get("failure_reason") or "Extraction failed across all LLM models"
+        result_json["procurement_status"] = {
             "status": "FAILED",
-            "reason": reason_msg
+            "completeness_score": 0
         }
-        recommendation = "The procurement process is incomplete. Review the missing procurement information before approving the document."
+        result_json["validation"] = {
+            "status": "FAILED",
+            "reason": fail_reason
+        }
+        result_json["missing_procurement_information"] = [
+            {"field": "all_fields", "reason": fail_reason}
+        ]
+        result_json["recommendation"] = f"Extraction failed due to API errors ({fail_reason}). Please retry later."
+        result_json["buyer"] = None
+        result_json["supplier"] = None
+        result_json["items"] = None
+        result_json["llm_confidence_score"] = None
+        result_json["calculated_confidence_score"] = None
+        result_json["confidence_discrepancy_flag"] = False
+        result_json["completeness"] = {
+            "score": 0,
+            "status": "FAILED",
+            "required_fields": 7,
+            "present_fields": 0,
+            "missing_fields": 7,
+            "conflicts": 0
+        }
+        return result_json
 
-    # Update result_json
-    result_json["procurement_status"] = procurement_status
-    result_json["validation"] = validation
-    result_json["missing_procurement_information"] = missing_procurement_info
-    result_json["recommendation"] = recommendation
+    intent = result_json.get("intent", "other")
+    doc_types = result_json.get("document_type", [])
+    if isinstance(doc_types, str):
+        doc_types = [doc_types]
+
+    # STEP 1: Detect document type strictly into one of the 6 possible types
+    if intent == "request_for_quotation" or any("rfq" in str(dt).lower() or "quotation" in str(dt).lower() for dt in doc_types):
+        doc_type = "request_for_quotation"
+    elif intent in ("purchase_order_issuance", "purchase_order") or any("po" in str(dt).lower() or "purchase" in str(dt).lower() for dt in doc_types):
+        doc_type = "purchase_order"
+    elif intent in ("invoice_only", "invoice") or any("invoice" in str(dt).lower() for dt in doc_types):
+        doc_type = "invoice"
+    elif intent in ("shipment_dispatch_notification", "delivery_note") or any("delivery" in str(dt).lower() or "shipment" in str(dt).lower() or "dispatch" in str(dt).lower() for dt in doc_types):
+        doc_type = "delivery_note"
+    elif intent == "quotation_response" or any("proposal" in str(dt).lower() or "offer" in str(dt).lower() for dt in doc_types):
+        doc_type = "quotation_response"
+    elif intent == "vendor_price_list" or any("catalog" in str(dt).lower() or "price_list" in str(dt).lower() for dt in doc_types):
+        doc_type = "vendor_price_list"
+    else:
+        doc_type = "request_for_quotation"
+
+    required_fields = get_required_fields(doc_type)
+    
+    present_required_fields = 0
+    missing_required_fields = []
+    
+    for f in required_fields:
+        if check_field(result_json, f):
+            present_required_fields += 1
+        else:
+            missing_required_fields.append(f)
+
+    # The model may report helpful-but-optional fields as missing.  The final
+    # missing_fields list is reserved exclusively for objectively absent required
+    # fields; optional gaps are deliberately separated for reviewer visibility.
+    optional_fields_missing = [
+        field for field in get_optional_fields(doc_type)
+        if not check_field(result_json, field)
+    ]
+    result_json["missing_fields"] = missing_required_fields
+    result_json["optional_fields_missing"] = optional_fields_missing
+            
+    total_required_fields = len(required_fields)
+    raw_score = (present_required_fields / total_required_fields) * 100 if total_required_fields > 0 else 100
+
+    conflicts = result_json.get("conflicts", []) or []
+    for conflict in conflicts:
+        if isinstance(conflict, dict):
+            conflict["category"] = classify_conflict_category(conflict)
+    conflict_penalty = calculate_conflict_penalty(conflicts)
+    
+    # Preserve the existing completeness confidence-penalty formula.  Only the
+    # field name changed in the final output; legacy payloads remain supported.
+    confidence_raw = result_json.get("llm_confidence_score")
+    if confidence_raw is None:
+        confidence_raw = result_json.get("confidence_score")
+    if confidence_raw is None:
+        confidence_penalty = 20
+    else:
+        try:
+            confidence = float(confidence_raw)
+            if confidence >= 0.95:
+                confidence_penalty = 0
+            elif confidence >= 0.85:
+                confidence_penalty = 5
+            elif confidence >= 0.75:
+                confidence_penalty = 10
+            else:
+                confidence_penalty = 15
+        except Exception:
+            confidence_penalty = 20
+
+    final_score = max(0, min(100, int(round(raw_score - conflict_penalty - confidence_penalty))))
+
+    if final_score >= 95:
+        status = "COMPLETE"
+    elif final_score >= 80:
+        status = "MOSTLY_COMPLETE"
+    elif final_score >= 60:
+        status = "PARTIAL"
+    else:
+        status = "INCOMPLETE"
+
+    result_json["document_type"] = doc_type
+    result_json["completeness"] = {
+        "score": final_score,
+        "status": status,
+        "required_fields": total_required_fields,
+        "present_fields": present_required_fields,
+        "missing_fields": len(missing_required_fields),
+        "conflicts": len(conflicts)
+    }
+
+    result_json["procurement_status"] = {
+        "status": status,
+        "completeness_score": final_score
+    }
+    result_json["validation"] = {
+        "status": "PASSED" if status in ("COMPLETE", "MOSTLY_COMPLETE") else "FAILED",
+        "reason": f"Missing required fields: {', '.join(missing_required_fields)}" if missing_required_fields else ""
+    }
+    result_json["missing_procurement_information"] = [
+        {"field": f, "reason": f"Missing mandatory field {f}"} for f in missing_required_fields
+    ]
+    result_json["recommendation"] = (
+        "The procurement document is complete and ready for further processing."
+        if status in ("COMPLETE", "MOSTLY_COMPLETE") else
+        "The procurement process is incomplete. Review the missing procurement information before approving the document."
+    )
+
+    # Compute calculated_confidence_score and discrepancy flag
+    from .confidence_scorer import calculate_verified_confidence
+    llm_conf = result_json.get("llm_confidence_score")
+    if llm_conf is None:
+        llm_conf = result_json.get("confidence_score")
+    if llm_conf is not None:
+        try:
+            llm_conf = float(llm_conf)
+        except (TypeError, ValueError):
+            llm_conf = None
+
+    calc_conf = calculate_verified_confidence(result_json)
+    discrepancy = llm_conf is not None and abs(llm_conf - calc_conf) > 0.30
+
+    result_json["llm_confidence_score"] = llm_conf
+    result_json["calculated_confidence_score"] = calc_conf
+    result_json["confidence_discrepancy_flag"] = discrepancy
+    if "confidence_score" in result_json:
+        result_json.pop("confidence_score", None)
 
     return result_json

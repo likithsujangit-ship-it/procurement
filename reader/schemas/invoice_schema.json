@@ -52,7 +52,7 @@
     },
     "missing_fields": { "type": "array", "items": { "type": "string" } },
     "conflicts": { "type": "array" },
-    "confidence_score": { "type": "number", "minimum": 0, "maximum": 1 }
+    "llm_confidence_score": { "type": "number", "minimum": 0, "maximum": 1 }
   },
   "required": ["intent", "document_type", "buyer", "supplier", "invoice_number", "invoice_date", "items", "commercial_terms", "attachments"],
   "additionalProperties": false

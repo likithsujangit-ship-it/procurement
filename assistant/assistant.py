@@ -243,9 +243,18 @@ class UnifiedAssistant:
                 
                 # Extract content from attachments
                 attachment_contents = {}
+                aggregated_warnings = []
+                import re
                 for p in paths:
-                    attachment_contents[p.name] = extract_attachment_content(p)
-                    
+                    content = extract_attachment_content(p)
+                    meta_match = re.search(r'__PDF_META__\|pages_detected:(\d+)\|pages_processed:(\d+)\|ocr_pages:(True|False)', content)
+                    if meta_match:
+                        detected = int(meta_match.group(1))
+                        processed = int(meta_match.group(2))
+                        if detected > processed:
+                            aggregated_warnings.append(f"⚠️ WARNING: PDF Page Count Discrepancy in {p.name}! ({processed} of {detected} pages processed). Some scanned pages may have been skipped. Consider running OCR preprocessing.")
+                        content = content[:meta_match.start()].strip()
+                    attachment_contents[p.name] = content
                 metadata = {
                     "subject": email.get("subject", ""),
                     "sender": email.get("sender", ""),
@@ -260,6 +269,12 @@ class UnifiedAssistant:
 
                 resources = extract_resources(body)
                 summary = summarize_email(email, resources, attachment_contents)
+                
+                # Prepend warnings to the summary text so it's included in outputs
+                if aggregated_warnings:
+                    warnings_text = "\n".join(aggregated_warnings) + "\n\n"
+                    summary["summary"] = warnings_text + summary.get("summary", "")
+                    
                 save_extraction_outputs(email, summary, attachment_contents, structured_extractions=structured_extractions)
                 
                 # Display report
@@ -391,6 +406,25 @@ class UnifiedAssistant:
         try:
             content = extract_attachment_content(file_path)
             
+            # FILE TRACEABILITY LOG
+            file_stat = file_path.stat()
+            import datetime
+            mod_time = datetime.datetime.fromtimestamp(file_stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+            logger.info(f"FILE TRACEABILITY: Read {file_path.resolve()} (Modified: {mod_time}, Size: {file_stat.st_size} bytes)")
+            print(f"\n[Traceability] Reading exact file: {file_path.resolve()}\n[Traceability] Last Modified: {mod_time}, Size: {file_stat.st_size} bytes\n")
+            
+            # Parse and strip __PDF_META__ block
+            warning_prefix = ""
+            import re
+            meta_match = re.search(r'__PDF_META__\|pages_detected:(\d+)\|pages_processed:(\d+)\|ocr_pages:(True|False)', content)
+            if meta_match:
+                detected = int(meta_match.group(1))
+                processed = int(meta_match.group(2))
+                if detected > processed:
+                    warning_prefix = f"⚠️ WARNING: PDF Page Count Discrepancy detected! ({processed} of {detected} pages processed). Some scanned pages may have been skipped. Consider running OCR preprocessing.\n\n"
+                # Strip the meta block from the content sent to LLM
+                content = content[:meta_match.start()].strip()
+            
             # Use Groq client for document summary
             groq = GroqClient()
             if groq.is_available():
@@ -398,8 +432,10 @@ class UnifiedAssistant:
                     "You are a document analyzer. Summarize the following document content in a structured "
                     "bullet-point report. Highlight key takeaways, dates, and amounts if applicable."
                 )
-                summary_report = groq.get_completion(system_prompt, content[:5000])
+                summary_report = groq.get_completion(system_prompt, content)
                 print("\n" + "=" * 30 + f" SUMMARY OF {filename.upper()} " + "=" * 30)
+                if warning_prefix:
+                    print(warning_prefix)
                 print(summary_report)
                 print("=" * 70 + "\n")
             else:
@@ -491,35 +527,83 @@ class UnifiedAssistant:
                 proc_rec = result.get("recommendation", "")
                 conflicts_count = len(result.get("conflicts", []))
                 
-                # Format Document Type nicely (e.g. purchase_order_issuance -> Purchase Order)
-                intent_raw = result.get("intent", "other")
-                doc_type_display = intent_raw.replace("_issuance", "").replace("_only", "").replace("_", " ").title()
-                if result.get("document_type") and len(result["document_type"]) > 0:
-                    doc_type_display = result["document_type"][0].replace("_", " ").title()
+                if result.get("extraction_status") == "failed":
+                    fail_reason = result.get("failure_reason", "LLM extraction failed across all models")
+                    print("\n" + "=" * 25 + " EXTRACTION FAILED " + "=" * 25 + "\n")
+                    print(f"Status        : FAILED")
+                    print(f"Failure Reason: {fail_reason}")
+                    print("Buyer         : null")
+                    print("Supplier      : null")
+                    print("Confidence    : null")
+                    print("\nRecommendation:")
+                    print("The extraction pipeline failed due to LLM API errors (e.g. rate limits).")
+                    print("No procurement information was populated. Please retry later.\n")
+                    print("Output Files\n")
+                    print("[+] extracted_data.json\n")
+                    print("[+] summary.txt")
+                    print("\n" + "=" * 69 + "\n")
+                    continue
+
+                intent_raw = result.get("intent")
+                if intent_raw and str(intent_raw).strip():
+                    if isinstance(intent_raw, list) and len(intent_raw) > 0:
+                        raw_type = str(intent_raw[0]).strip()
+                    else:
+                        raw_type = str(intent_raw).strip()
+                else:
+                    doc_type_val = result.get("document_type")
+                    if doc_type_val:
+                        if isinstance(doc_type_val, list) and len(doc_type_val) > 0:
+                            raw_type = str(doc_type_val[0]).strip()
+                        elif isinstance(doc_type_val, str) and doc_type_val.strip():
+                            raw_type = doc_type_val.strip()
+                        else:
+                            raw_type = "other"
+                    else:
+                        raw_type = "other"
+                doc_type_display = raw_type
+
+
 
                 buyer_name = result.get("buyer", {}).get("company_name") or result.get("buyer", {}).get("contact_name") or "Not Specified"
                 supplier_name = result.get("supplier", {}).get("company_name") or result.get("supplier", {}).get("contact_name") or "Not Specified"
                 status_str = proc_status.get("status", "INCOMPLETE")
                 score_val = proc_status.get("completeness_score", 0)
                 val_status = proc_val.get("status", "FAILED")
-                val_display = "✅ PASSED" if val_status == "PASSED" else "❌ FAILED"
+                val_display = "[+] PASSED" if val_status == "PASSED" else "[X] FAILED"
                 
                 print("\n" + "=" * 17 + " PROCUREMENT INFO " + "=" * 17 + "\n")
-                print(f"Document Type : {doc_type_display}\n")
+                print(f"Document Type (LLM Intent): {doc_type_display}\n")
                 print(f"Buyer : {buyer_name}\n")
                 print(f"Supplier : {supplier_name}\n")
-                print(f"Procurement Status : {status_str}\n")
-                print(f"Completeness Score : {score_val}%\n")
-                print(f"Validation : {val_display}\n")
                 print(f"Conflicts : {conflicts_count}\n")
+                print(f"Confidence : {result.get('confidence_score', 1.0)}\n")
+                print(f"Validation : {val_display} (Score: {score_val}) - {status_str}\n")
                 
-                if proc_missing:
-                    print("Missing Procurement Information")
-                    for item in proc_missing:
-                        print(f"• {item.get('field', 'Field')}")
-                    print()
-                else:
-                    print("Missing Procurement Information : None\n")
+                # Expose the comparative audit table for all 6 types
+                try:
+                    reader_validate_proc = import_reader_module("tools.intelligent_extractor.validate_procurement")
+                    evaluate_doc_for_type = reader_validate_proc.evaluate_doc_for_type
+                    
+                    doc_types_list = [
+                        "request_for_quotation",
+                        "purchase_order",
+                        "invoice",
+                        "delivery_note",
+                        "quotation_response",
+                        "vendor_price_list"
+                    ]
+                    
+                    print("-" * 100)
+                    print(f"{'Audit Type':<25} | {'Score':<5} | {'Status':<15} | {'Fields (Pres/Req)':<18} | {'Missing Fields'}")
+                    print("-" * 100)
+                    for dt in doc_types_list:
+                        res = evaluate_doc_for_type(result, dt)
+                        missing_str = ", ".join(res["missing"]) if res["missing"] else "None (100% complete)"
+                        print(f"{dt:<25} | {res['score']:<5} | {res['status']:<15} | {res['present']}/{res['total']:<16} | {missing_str}")
+                    print("-" * 100 + "\n")
+                except Exception as eval_err:
+                    print(f"[Error printing comparative audit table: {eval_err}]\n")
                     
                 is_valid, errors, warnings, schema_used = validate_extraction(result)
                 if warnings:
@@ -527,7 +611,7 @@ class UnifiedAssistant:
                     for warn in warnings:
                         words = warn.split()
                         short_warn = " ".join(words[:4]) + "..." if len(words) > 4 else warn
-                        print(f"• {short_warn}")
+                        print(f"- {short_warn}")
                     print()
                 else:
                     print("Warnings : None\n")
@@ -536,8 +620,8 @@ class UnifiedAssistant:
                     print(f"Recommendation\n{proc_rec}\n")
                     
                 print("Output Files\n")
-                print("✓ extracted_data.json\n")
-                print("✓ summary.txt")
+                print("[+] extracted_data.json\n")
+                print("[+] summary.txt")
                 print("\n" + "=" * 52 + "\n")
             
         except GmailAuthError as auth_err:
@@ -545,6 +629,190 @@ class UnifiedAssistant:
         except Exception as e:
             logger.exception("Intelligent extraction error.")
             print(f"[System Error] Intelligent extraction failed: {e}")
+
+    def handle_test_all_summaries(self, parameters: Dict[str, Any]) -> None:
+        """Test feature to summarize all attachments from a sender into a test folder."""
+        print("\n--> Running test feature: Summarize all attachments...")
+        try:
+            service = self._ensure_gmail_service()
+            raw_sender = parameters.get("sender")
+            if not raw_sender:
+                print("Error: No sender email identified.")
+                return
+
+            q = build_search_query(senders=[str(raw_sender)])
+            emails = fetch_emails(service, query=q, max_results=1)
+            
+            if not emails:
+                print(f"No matching emails found for {raw_sender}.")
+                return
+                
+            email = emails[0]
+            print(f"\nExtracting from: '{email['subject']}' sent by {email['sender']}")
+            
+            paths = download_all_attachments(service, email)
+            if not paths:
+                print("No attachments found.")
+                return
+
+            # Extract username from email
+            username = raw_sender.split('@')[0]
+            
+            # Create test_all/username folder
+            test_dir = Path("test_all") / username
+            test_dir.mkdir(parents=True, exist_ok=True)
+            
+            groq = GroqClient()
+            system_prompt = """            system_prompt = You are a precision document summarizer for procurement, tender, and purchase-order 
+documents (POs, NITs, tender notices, office notes, correspondence, comparative 
+statements). Your summaries are used by people who will act on them — approve payments, 
+track deadlines, verify compliance — so factual accuracy outranks brevity.
+
+# NON-NEGOTIABLE RULES
+
+1. NEVER invent, guess, round, or "auto-correct" a number, date, or ID.
+   - If a value is unclear, illegible, or ambiguous, write [UNCLEAR: best guess] 
+     rather than silently picking one.
+   - Do NOT change a year, date, or figure to what "looks more plausible." 
+     Copy it exactly as written in the source, character for character.
+
+2. ALWAYS double-check every date, amount, percentage, and reference number 
+   against the source text before including it. After drafting the summary, 
+   re-scan the source and re-scan your draft side-by-side for every digit.
+
+3. NEVER drop a clause just because it's "routine" or "boilerplate" — 
+   see the "Not specified" rule below.
+
+# DISTINGUISHING ABSENCE FROM UNCERTAINTY
+
+Before writing "Not specified" for any Required Field, you must have actually 
+searched the full source text for that information. Do not write "Not specified" 
+from assumption or pattern — only after confirming it is genuinely absent.
+
+Use exactly these three labels, and only these:
+- "[value]" — found verbatim in source
+- "Not present in this document" — you searched and confirmed it is absent
+- "[UNCLEAR — source unreadable/ambiguous at this point]" — visible but 
+  illegible/contradictory. NEVER pair this with a fabricated specific value.
+
+NEVER pull a fact from a different document in the batch to fill a gap in 
+the current one, even if they relate to the same procurement. Each summary 
+must be generated strictly from its own source file.
+
+# CRITICAL CORRECTION — MANDATORY BEFORE OUTPUT
+
+You have a documented history of two specific errors. You MUST actively guard against both.
+
+## ERROR TYPE 1: Detecting a problem and reporting it anyway
+Example of what you did wrong: noticing a number looks wrong but printing it unchanged anyway.
+
+RULE: If any date, number, or ID looks internally inconsistent, unusual, 
+or contradicts another date/number in the same document, this is a STOP 
+condition, not a flag condition. You must:
+  1. Stop.
+  2. Re-locate that exact field in the source text character by character.
+  3. Copy the literal characters from the source — do not reconstruct it from memory.
+  4. Only write it in the summary once you have re-read it directly.
+It is NEVER acceptable to print a value in the summary body that you know or suspect is an OCR misread. 
+
+## ERROR TYPE 2: Fabricating plausible specificity
+Example of what you did wrong: generating a completely wrong year or adding seconds to a time when none exist in the source. Any time the OCR outputs a list of un-labeled dates, do NOT guess which one is the deadline. If you cannot confidently tie a date to a label, output "[UNCLEAR - Multiple unlabeled dates found]" instead of guessing.
+
+## ERROR TYPE 3: Writing "Not specified" for fields that exist in the source
+Example of what you did wrong: writing "Delivery period: Not specified" 
+in a Purchase Order summary when the source document contains an entire 
+numbered clause ("12. DELIVERY PERIOD") elsewhere.
+
+RULE: Before writing "Not specified" or "Not present in this document" 
+for ANY field, you must perform an explicit verification step:
+  1. Scan the ENTIRE source document top to bottom.
+  2. Purchase Orders ALMOST ALWAYS contain numbered clauses for: delivery period, despatch instructions, 
+     consignee details, paying officer, liquidated damages, guarantee 
+     period, and test certificates. If you are about to mark ANY of these 
+     "Not specified", treat that as a red flag and re-read the full document.
+
+## ERROR TYPE 4: Skipping Middle-of-Table Fields
+Example of what you did wrong: marking "Tender Type: Not specified" when it was clearly listed in row 7 of a 23-row Summary Sheet table.
+RULE: When the source contains ANY numbered or tabular field list (e.g., a Summary Sheet with items 1-23), you MUST process it as a strict checklist. Go row-by-row through every numbered item in any such table and confirm each one is either included in the summary or explicitly confirmed absent. Do not summarize a table by "reading the gist" of it.
+
+## CROSS-FIELD DATE SANITY CHECK (mandatory before finalizing any date):
+
+Tender and procurement documents follow a fixed logical order:
+  issue date  ->  submission deadline  ->  bid opening date
+
+The submission deadline can NEVER be later than the bid opening date — opening happens after submission closes, always, with no exceptions in this document type.
+
+Before writing any date into the summary, check it against this rule:
+  - If "bid submission deadline" > "bid opening date" as literally read, this is IMPOSSIBLE, not just "inconsistent." One of the two OCR readings is wrong.
+  - When this happens, do NOT print either date as fact. Instead, output: "Bid submission deadline: [UNRELIABLE OCR — verify against source; raw text read as <date>, which is chronologically impossible given bid opening date <date>]"
+  - This applies to any date pair in the document, not just this one field — apply the same logical check to issue date vs. deadline, deadline vs. validity period, etc.
+
+This check must happen BEFORE the value is written into the summary body, not after (do not print a wrong value in the body and only mention the problem in a separate Flags section — the two must never disagree).
+
+## REQUIRED FIELDS CHECKLIST
+If the document is a Tender Notice, NIT, or RFQ, you MUST explicitly check for the following fields and report if they are present or absent:
+- Tender Type
+- Tender Category
+- Bid Validity (e.g., "120 Days")
+(For all other document types like Purchase Orders, Comparative Statements, or letters, do NOT include these fields in the summary).
+
+## MANDATORY FINAL PASS
+After drafting the full summary, do a dedicated second pass:
+  - Read your own draft top to bottom.
+  - For every "Not specified" / "Not present" line, re-search once more.
+  - For every date/time/number, re-compare digit-by-digit against source.
+  - VALIDATION PASS FOR ADDRESSES/PINS: Check PIN codes for structural formatting. If a 6-digit PIN has a space (e.g. "5163 12"), auto-correct it by removing the space ("516312") since it's a pure formatting fix. NEVER silently auto-correct character-level typos (e.g., "V.W" -> "V.V"). Instead, flag them: "Address reads 'V.W Reddy Nagar' — likely OCR misread of 'V.V Reddy Nagar' based on matching addresses elsewhere in this document set, but not auto-corrected — please verify."
+  - For every "Not specified" / "Not present" line, re-search once more.
+  - For every date/time/number, re-compare digit-by-digit against source.
+
+Do not proceed to final output until this pass is complete.
+"""
+            
+            import re
+            for path in paths:
+                print(f"  - Extracting: {path.name}")
+                content = extract_attachment_content(path)
+                
+                # FILE TRACEABILITY LOG
+                file_stat = path.stat()
+                import datetime
+                mod_time = datetime.datetime.fromtimestamp(file_stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                logger.info(f"FILE TRACEABILITY: Read {path.resolve()} (Modified: {mod_time}, Size: {file_stat.st_size} bytes)")
+                print(f"    [Traceability] Last Modified: {mod_time}, Size: {file_stat.st_size} bytes")
+                
+                # Parse and strip __PDF_META__ block
+                warning_prefix = ""
+                meta_match = re.search(r'__PDF_META__\|pages_detected:(\d+)\|pages_processed:(\d+)\|ocr_pages:(True|False)', content)
+                if meta_match:
+                    detected = int(meta_match.group(1))
+                    processed = int(meta_match.group(2))
+                    if detected > processed:
+                        warning_prefix = f"⚠️ WARNING: PDF Page Count Discrepancy detected! ({processed} of {detected} pages processed). Some scanned pages may have been skipped. Consider running OCR preprocessing.\n\n"
+                    # Strip the meta block from the content sent to LLM
+                    content = content[:meta_match.start()].strip()
+                
+                try:
+                    if groq.is_available():
+                        summary = groq.get_completion(system_prompt, content)
+                    else:
+                        summary = "LLM not available."
+                except Exception as e:
+                    summary = f"Summary failed: {e}"
+                    
+                final_output = warning_prefix + summary
+                    
+                test_dir.mkdir(parents=True, exist_ok=True)
+                out_file = test_dir / f"{path.name}_summary.txt"
+                with open(out_file, "w", encoding="utf-8") as f:
+                    f.write(final_output)
+                    
+                print(f"Saved summary to {out_file}")
+                
+            print(f"\nDone! All summaries saved in {test_dir.resolve()}")
+            
+        except Exception as e:
+            logger.exception("Test summaries error.")
+            print(f"[System Error] Test summaries failed: {e}")
 
 
 def main() -> None:
@@ -584,6 +852,8 @@ def main() -> None:
                 assistant.handle_search_documents(instruction)
             elif action == "INTELLIGENT_EXTRACT":
                 assistant.handle_intelligent_extract(params)
+            elif action == "TEST_ALL_SUMMARIES":
+                assistant.handle_test_all_summaries(params)
             else:
                 print(f"Unknown action: '{action}'. I might not be able to handle that command yet.")
                 

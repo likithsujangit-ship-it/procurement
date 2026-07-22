@@ -70,7 +70,25 @@ def _summarize_with_groq(
         "- 'meeting_dates': list of strings (any specific meeting dates and times mentioned in the email)\n"
         "- 'important_links': list of strings (links that are key to the email context)\n"
         "- 'resources': dict containing extracted identifiers (OTPs, tracking numbers, invoices, references)\n"
-        "- 'attachment_summary': list of dicts (each containing 'filename', 'size_bytes', and 'content_summary')\n"
+        "- 'attachment_summary': list of dicts (each containing 'filename', 'size_bytes', and 'content_summary')\n\n"
+        "ERROR TYPE: Skipping Middle-of-Table Fields\n"
+        "RULE: When the source contains ANY numbered or tabular field list (e.g., a Summary Sheet with items 1-23), you MUST process it as a strict checklist. Go row-by-row through every numbered item in any such table and confirm each one is either included in the summary or explicitly confirmed absent. Do not summarize a table by 'reading the gist' of it.\n\n"
+        "REQUIRED FIELDS CHECKLIST\n"
+        "If the document is a Tender Notice, NIT, or RFQ, you MUST explicitly check for the following fields and report if they are present or absent:\n"
+        "- Tender Type\n"
+        "- Tender Category\n"
+        "- Bid Validity (e.g., '120 Days')\n"
+        "(For all other document types like Purchase Orders, Comparative Statements, or letters, do NOT include these fields in the summary).\n\n"
+        "CROSS-FIELD DATE SANITY CHECK (mandatory before finalizing any date):\n"
+        "Tender and procurement documents follow a fixed logical order: issue date -> submission deadline -> bid opening date.\n"
+        "The submission deadline can NEVER be later than the bid opening date — opening happens after submission closes, always, with no exceptions in this document type.\n"
+        "Before writing any date into the summary, check it against this rule:\n"
+        "  - If 'bid submission deadline' > 'bid opening date' as literally read, this is IMPOSSIBLE, not just 'inconsistent.' One of the two OCR readings is wrong.\n"
+        "  - When this happens, do NOT print either date as fact. Instead, output: 'Bid submission deadline: [UNRELIABLE OCR — verify against source; raw text read as <date>, which is chronologically impossible given bid opening date <date>]'\n"
+        "  - This applies to any date pair in the document, not just this one field — apply the same logical check to issue date vs. deadline, deadline vs. validity period, etc.\n"
+        "This check must happen BEFORE the value is written into the summary body, not after (do not print a wrong value in the body and only mention the problem in a separate Flags section — the two must never disagree).\n\n"
+        "VALIDATION PASS FOR ADDRESSES/PINS:\n"
+        "Check PIN codes for structural formatting. If a 6-digit PIN has a space (e.g. '5163 12'), auto-correct it by removing the space ('516312') since it's a pure formatting fix. NEVER silently auto-correct character-level typos (e.g., 'V.W' -> 'V.V'). Instead, flag them: \"Address reads 'V.W Reddy Nagar' — likely OCR misread of 'V.V Reddy Nagar' based on matching addresses elsewhere in this document set, but not auto-corrected — please verify.\"\n"
     )
     
     # Format attachments info for LLM prompt
@@ -307,36 +325,17 @@ def save_extraction_outputs(
             })
             
         full_json_payload = {
-            "intent": summary.get("intent", "request_for_quotation"),
-            "document_type": summary.get("document_type", ["RFQ"]),
-            "buyer": summary.get("buyer", {
-                "company_name": summary.get("sender", "N/A"),
-                "address": "N/A",
-                "gstin": "N/A",
-                "contact_name": summary.get("sender", "N/A"),
-                "contact_title": "N/A",
-                "email": summary.get("sender", "N/A"),
-                "phone": "N/A"
-            }),
-            "supplier": summary.get("supplier", {
-                "company_name": "N/A",
-                "address": "N/A",
-                "contact_name": "N/A",
-                "contact_title": "N/A",
-                "email": "N/A"
-            }),
-            "rfq_number": summary.get("rfq_number", "N/A"),
-            "rfq_issue_date": email_data.get("date", "N/A"),
-            "quotation_due_date": summary.get("due_date", "N/A"),
-            "items": summary.get("items", []),
-            "commercial_terms": summary.get("commercial_terms", {}),
-            "delivery_requirements": summary.get("delivery_requirements", {}),
-            "shipping_details": summary.get("shipping_details", {}),
+            "extraction_status": "failed",
+            "failure_reason": "No structured extraction available",
+            "intent": None,
+            "document_type": None,
+            "buyer": None,
+            "supplier": None,
+            "items": None,
             "attachments": att_list,
-            "missing_fields": summary.get("missing_fields", []),
-            "conflicts": summary.get("conflicts", []),
-            "confidence_score": summary.get("confidence_score", 0.95)
+            "confidence_score": None
         }
+
 
     json_path = output_dir / f"{prefix}_extracted_data.json"
     with open(json_path, "w", encoding="utf-8") as f:

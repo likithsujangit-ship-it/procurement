@@ -30,7 +30,6 @@ class Config:
 
     # API Keys
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
     # SMTP Configuration
     SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.gmail.com")
@@ -51,7 +50,7 @@ class Config:
         errors = []
 
         if not cls.GROQ_API_KEY or cls.GROQ_API_KEY == "gsk_your_groq_api_key_here":
-            errors.append("GROQ_API_KEY is not configured or contains placeholder.")
+            errors.append("GROQ_API_KEY is not configured.")
 
         if not cls.DRY_RUN:
             if not cls.SMTP_EMAIL or cls.SMTP_EMAIL == "your_email@gmail.com":

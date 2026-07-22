@@ -68,6 +68,8 @@ EMAIL_AI/
 │       ├── excel_reader.py
 │       ├── csv_reader.py
 │       ├── zip_reader.py
+│       ├── tika_reader.py
+│       ├── email_reader.py
 │       ├── link_extractor.py
 │       ├── summarizer.py
 │       ├── groq_client.py
@@ -109,7 +111,11 @@ EMAIL_AI/
 ### 3. Email Reader & Downloader (`reader/`)
 * **OAuth 2.0 Credentials Manager**: Seamlessly manages `token.json` authorization so browser login is only needed once.
 * **Attachment Organizer**: Saves files into `reader/files/<sender_prefix>/DD-MM-YYYY-(HH_MM_SS_fff)/` based on who sent the email and the exact millisecond received time.
-* **Structural Document Extractors**: Dedicated layout readers for PDFs, DOCX (Word), PPTX (Slides), XLSX (Excel matrices), CSV, archives (ZIP), and OCR image scanning.
+* **Universal Document & Email Extractors**: 
+  - **Modern Formats**: Natively reads `.pdf` (text and scanned), `.docx` (Word), `.pptx`/`.ppt` (PowerPoint), `.xlsx` (Excel), and `.csv`.
+  - **Legacy Formats**: Reads `.xls` (legacy Excel via `xlrd`), and `.doc`, `.rtf`, `.odt`, `.ods` (legacy Word, rich text, and OpenOffice formats via **Apache Tika**).
+  - **Email Parsing**: Natively extracts subject, headers, and bodies from `.eml` and Outlook `.msg` files.
+* **Robust Local OCR Pipeline**: Uses `ocrmypdf`, `Ghostscript`, and `Tesseract-OCR` for deep pre-processing of scanned PDFs and complex tables, seamlessly falling back to `pytesseract` and `PyMuPDF` for embedded images to ensure 100% text extraction without heavy cloud API dependencies.
 * **Resource Extractor**: Pulls out OTPs, meeting dates, phone numbers, tracking IDs, invoice IDs, and Drive/GitHub links.
 
 ### 4. Enterprise Document-Intelligence Extraction Engine (`reader/tools/intelligent_extractor/`)
@@ -119,7 +125,7 @@ EMAIL_AI/
   2. **Envelope Discrepancy Auditing**: Disagreements between email envelope senders and document contact emails are surfaced in `conflicts` (e.g. `sender_vs_buyer_email`).
   3. **ISO 8601 Date Normalization**: Standardizes all dates to `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS+HH:MM` and records date discrepancies.
   4. **Multi-Item Line Extraction (`items[]`)**: Cross-checks part numbers, descriptions, quantities, units, and material grades across `BOM.xlsx`, `RFQ.pdf`, and `Technical_Specification.docx`.
-  5. **Scoped Commercial & Delivery Terms**: Captures payment terms, Incoterms 2020, quotation validity, warranty, delivery splits (e.g. 40%/60%), and partial shipment flags.
+  5. **Scoped Commercial & Delivery Terms**: Captures payment terms, Incoterms 2020, quotation validity, warranty, partial shipment flags, and specifically **GST Rate, TDS Rate, Security Deposit (SD), Performance Bank Guarantee (PBG), Liquidated Damages (LD), and precise Delivery Requirements**.
   6. **Attachment MIME Classification**: Automatically infers MIME types and flags `extracted: true/false`.
   7. **Missing Fields Audit**: Tracks expected schema fields missing from source documents.
   8. **Dynamic Confidence Score**: Computes a Float (0.0–1.0) adjusted for conflicts, missing fields, or OCR artifacts.
@@ -223,3 +229,18 @@ Inside the **`ASSISTANT >`** CLI prompt, you can run these commands:
 * **Search by Document Context**:
   * `Find documents about Python` (Searches within parsed document text contexts for keywords)
   * `Show Amazon bills` (Filters for files sent by "Amazon" containing billing text)
+
+---
+
+## Quick Reference: All Commands Explained
+
+Below is the condensed list of all core functionalities, a single example command, and how it works in 3-4 words.
+
+| Functionality | Example Command | How it works (3-4 words) |
+|---|---|---|
+| **Send Email** | `Send resume.pdf to hr@gmail.com` | Parses NLP to SMTP |
+| **Summarize Emails** | `Summarize latest from boss@company.com` | Groq LPU text summarization |
+| **Download Attachments** | `Download last 3 from vendor@company.com` | Gmail API file extraction |
+| **Extract JSON (Intelligent)** | `Extract latest from supplier@company.com` | Multi-stage document intelligence |
+| **Search Files/Folders** | `Find .pdf from vendor` | Fuzzy glob regex matching |
+

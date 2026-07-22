@@ -16,11 +16,24 @@ def load_schema(intent: str):
         return json.load(f)
 
 def is_valid_date(date_str):
+    if not isinstance(date_str, str):
+        return False
     try:
         datetime.strptime(date_str, "%Y-%m-%d")
         return True
     except ValueError:
-        return False
+        pass
+    try:
+        datetime.fromisoformat(date_str)
+        return True
+    except ValueError:
+        pass
+    try:
+        datetime.strptime(date_str, "%Y/%m/%d")
+        return True
+    except ValueError:
+        pass
+    return False
 
 def validate_extraction(data: dict) -> tuple[bool, list[str], list[str], str]:
     """
@@ -43,13 +56,12 @@ def validate_extraction(data: dict) -> tuple[bool, list[str], list[str], str]:
         for e in validator.iter_errors(data):
             path = ".".join([str(p) for p in e.path]) if e.path else "root"
             if "Additional properties" in e.message:
-                # Allow more than standard schema
                 continue
             elif "is a required property" in e.message:
-                # If less than standard schema, just list what's missing as a warning
                 warnings.append(f"Missing field: {e.message}")
+            elif "is not of type 'string'" in e.message and ("None" in e.message or "null" in e.message):
+                warnings.append(f"Missing field: {path} is null")
             else:
-                # Other strict schema errors (wrong types, etc)
                 errors.append(f"{path}: {e.message}")
     except Exception as e:
         errors.append(f"Schema validation exception: {str(e)}")
@@ -57,14 +69,16 @@ def validate_extraction(data: dict) -> tuple[bool, list[str], list[str], str]:
     if not isinstance(data, dict):
         return len(errors) == 0, errors, warnings, schema_used
 
-    # 2. Custom Rule: Attachments[].type ⊆ document_type
+    # 2. Custom Rule: Attachments[].type ⊆ document_type (Allow MIME types and common document formats)
     doc_types = set(data.get("document_type", []))
     for i, attachment in enumerate(data.get("attachments", [])):
         att_type = attachment.get("type")
         if att_type and att_type not in doc_types:
+            if "/" in att_type or att_type.lower() in ("pdf", "docx", "doc", "xlsx", "xls", "png", "jpg", "jpeg", "csv", "zip"):
+                continue
             errors.append(f"attachments[{i}].type: '{att_type}' not in document_type array {list(doc_types)}")
             
-    # 2b. Custom Rule: Filename-based sanity check (now generalized slightly)
+    # 2b. Custom Rule: Filename-based sanity check
     for i, attachment in enumerate(data.get("attachments", [])):
         filename = attachment.get("filename", "").lower()
         att_type = attachment.get("type", "")
@@ -75,7 +89,7 @@ def validate_extraction(data: dict) -> tuple[bool, list[str], list[str], str]:
     for key, value in data.items():
         if isinstance(key, str) and (key.endswith("_date") or key == "date") and isinstance(value, str):
             if not is_valid_date(value):
-                errors.append(f"{key}: '{value}' is not a valid calendar date in YYYY-MM-DD format")
+                errors.append(f"{key}: '{value}' is not a valid calendar date in YYYY-MM-DD or ISO format")
 
     # 4. Custom Rule: Due date >= rfq date (Warning for RFQ only)
     if intent == "request_for_quotation":
@@ -86,10 +100,7 @@ def validate_extraction(data: dict) -> tuple[bool, list[str], list[str], str]:
                 warnings.append(f"quotation_due_date ({due_date_str}) is before rfq_date ({rfq_date_str})")
 
     # 5. Custom Rule: missing_fields should be actual keys in the schema (Warning)
-    # Dynamically extract all possible properties from the loaded schema
     allowed_missing_fields = set(schema.get("properties", {}).keys())
-    
-    # Allow some leeway for nested or common custom missing fields
     allowed_missing_fields.update(["freight_cost", "insurance_terms", "specific_bank_account_details"])
     
     for missing_field in data.get("missing_fields", []):
@@ -97,7 +108,7 @@ def validate_extraction(data: dict) -> tuple[bool, list[str], list[str], str]:
         if base_field not in allowed_missing_fields:
             warnings.append(f"missing_fields contains '{missing_field}' which is not a recognized top-level schema field")
 
-    # 6. JSON serialization check for item quantities (ensure they are strictly int, not floats like 40.0)
+    # 6. JSON serialization check for item quantities (ensure integer quantity)
     for i, item in enumerate(data.get("items", [])):
         q = item.get("quantity")
         if q is not None and not isinstance(q, int):

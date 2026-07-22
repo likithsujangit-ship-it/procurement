@@ -23,39 +23,48 @@ def extract_excel_text(filepath: Path) -> str:
     """
     logger.info(f"Extracting sheets from Excel workbook: {filepath.name}")
     
-    # Handle older .xls files gracefully
-    if filepath.suffix.lower() == ".xls":
-        logger.warning(f"File {filepath.name} is a legacy .xls file. openpyxl only supports .xlsx.")
-        return (
-            "[Unsupported Format: Legacy .xls file]\n"
-            "Troubleshooting: Please convert this file to the modern .xlsx format "
-            "using Microsoft Excel or LibreOffice to allow automated content reading."
-        )
-
     try:
-        # Load workbook (data_only=True to extract resolved formulas rather than formulas code)
-        wb = openpyxl.load_workbook(filepath, data_only=True)
         text_parts = []
         
-        for sheet_name in wb.sheetnames:
-            text_parts.append(f"--- Sheet: {sheet_name} ---")
-            sheet = wb[sheet_name]
-            
-            rows_content = []
-            for row in sheet.iter_rows(values_only=True):
-                # Filter out completely empty rows
-                if not any(val is not None for val in row):
-                    continue
+        # Handle older .xls files using xlrd
+        if filepath.suffix.lower() == ".xls":
+            import xlrd
+            wb = xlrd.open_workbook(filepath)
+            for sheet in wb.sheets():
+                text_parts.append(f"--- Sheet: {sheet.name} ---")
+                rows_content = []
+                for row_idx in range(sheet.nrows):
+                    row = sheet.row_values(row_idx)
+                    # Filter out completely empty rows
+                    if not any(str(val).strip() for val in row):
+                        continue
+                    row_str = [str(val).strip() for val in row]
+                    rows_content.append(" | ".join(row_str))
                 
-                # Format cell values cleanly
-                row_str = [str(val).strip() if val is not None else "" for val in row]
-                rows_content.append(" | ".join(row_str))
+                if rows_content:
+                    text_parts.append("\n".join(rows_content))
+                else:
+                    text_parts.append("[Empty Sheet]")
+        else:
+            # Handle modern .xlsx files using openpyxl
+            wb = openpyxl.load_workbook(filepath, data_only=True)
+            for sheet_name in wb.sheetnames:
+                text_parts.append(f"--- Sheet: {sheet_name} ---")
+                sheet = wb[sheet_name]
                 
-            if rows_content:
-                text_parts.append("\n".join(rows_content))
-            else:
-                text_parts.append("[Empty Sheet]")
-                
+                rows_content = []
+                for row in sheet.iter_rows(values_only=True):
+                    # Filter out completely empty rows
+                    if not any(val is not None and str(val).strip() for val in row):
+                        continue
+                    row_str = [str(val).strip() if val is not None else "" for val in row]
+                    rows_content.append(" | ".join(row_str))
+                    
+                if rows_content:
+                    text_parts.append("\n".join(rows_content))
+                else:
+                    text_parts.append("[Empty Sheet]")
+                    
         if not text_parts:
             return "[Excel file has no sheets]"
             

@@ -9,10 +9,11 @@ import re
 import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
-from groq import Groq
 from config import Config
 from tools.utils import setup_logger
 from tools.extractor import extract_attachment_content
+
+from groq import Groq
 
 logger = setup_logger("search_engine")
 
@@ -53,7 +54,6 @@ class SearchEngine:
         self.index: Dict[str, Any] = {}
         self.load_index()
 
-        # Initialize Groq client if key is configured
         if Config.GROQ_API_KEY and Config.GROQ_API_KEY != "gsk_your_groq_api_key_here":
             self.groq_client = Groq(api_key=Config.GROQ_API_KEY)
         else:
@@ -77,93 +77,43 @@ class SearchEngine:
         try:
             with open(self.index_file, "w", encoding="utf-8") as f:
                 json.dump(self.index, f, indent=2)
-            logger.debug(f"Saved search index to {self.index_file.resolve()}")
+            logger.debug(f"Saved search index to {self.index_file}")
         except Exception as e:
-            logger.error(f"Failed to write search index to disk: {e}")
+            logger.error(f"Failed to save search index: {e}")
 
     def update_index(self) -> None:
         """
-        Recursively scans reader/files/ for new or modified attachments.
-        Updates the index with extracted text and keywords, skipping unchanged files.
+        Recursively scans DOWNLOAD_DIR for files.
+        Extracts content, computes SHA-256 checksums, and updates search_index.json.
         """
-        logger.info("Starting incremental file indexing scan...")
-        if not Config.DOWNLOAD_DIR.exists():
-            logger.warning(f"Download directory does not exist: {Config.DOWNLOAD_DIR}")
-            return
+        logger.info(f"Scanning directory for indexing: {Config.DOWNLOAD_DIR}")
+        updated_count = 0
 
-        index_changed = False
-        valid_paths = set()
+        for path in Config.DOWNLOAD_DIR.rglob("*"):
+            if path.is_file():
+                try:
+                    rel_path = str(path.relative_to(Config.DOWNLOAD_DIR))
+                    mtime = os.path.getmtime(path)
+                    file_size = path.stat().st_size
+                    
+                    if rel_path in self.index and self.index[rel_path].get("mtime") == mtime:
+                        continue
 
-        # Recursively search all files under files/
-        for file_path in Config.DOWNLOAD_DIR.rglob("*"):
-            if not file_path.is_file() or file_path.name.startswith("."):
-                continue
+                    raw_content = extract_attachment_content(path)
+                    
+                    self.index[rel_path] = {
+                        "filename": path.name,
+                        "extension": path.suffix.lower(),
+                        "size_bytes": file_size,
+                        "mtime": mtime,
+                        "content_preview": raw_content[:500],
+                        "raw_text": raw_content
+                    }
+                    updated_count += 1
+                except Exception as e:
+                    logger.warning(f"Error indexing file {path.name}: {e}")
 
-            # Calculate relative path to keep index portable
-            try:
-                rel_path = str(file_path.relative_to(Config.DOWNLOAD_DIR))
-            except ValueError:
-                continue
-
-            valid_paths.add(rel_path)
-            stat = file_path.stat()
-            file_size = stat.st_size
-            last_modified = stat.st_mtime
-
-            # Check if file has already been indexed and is unmodified
-            cached = self.index.get(rel_path)
-            if cached and cached.get("file_size") == file_size and cached.get("last_modified") == last_modified:
-                continue
-
-            logger.info(f"Indexing new or modified file: {rel_path}")
-            
-            # Extract content using existing reader extractors
-            try:
-                extracted_text = extract_attachment_content(file_path)
-            except Exception as e:
-                logger.error(f"Failed to extract content from {rel_path}: {e}")
-                extracted_text = f"[Extraction Error: {e}]"
-
-            # Parse sender folder and timestamp folder from directory structure
-            # Structure: reader/files/<sender_name>/<timestamp_folder>/<file>
-            parts = file_path.relative_to(Config.DOWNLOAD_DIR).parts
-            sender = parts[0] if len(parts) >= 3 else "unknown"
-            timestamp_folder = parts[1] if len(parts) >= 3 else "unknown"
-
-            # Extract human-readable downloaded time from timestamp folder name
-            # Format: DD-MM-YYYY-(HH_MM_SS_mmm) -> DD-MM-YYYY HH:MM:SS
-            match = re.match(r'(\d{2}-\d{2}-\d{4})-\((\d{2})_(\d{2})_(\d{2})_?\d*\)?', timestamp_folder)
-            if match:
-                downloaded_time = f"{match.group(1)} {match.group(2)}:{match.group(3)}:{match.group(4)}"
-            else:
-                downloaded_time = timestamp_folder
-
-            # Generate basic keywords offline from text content
-            words = re.findall(r'\b\w{4,15}\b', extracted_text.lower())
-            keywords = list(set(words))[:15]  # Limit to top 15 words
-
-            self.index[rel_path] = {
-                "filename": file_path.name,
-                "sender": sender,
-                "timestamp_folder": timestamp_folder,
-                "downloaded_time": downloaded_time,
-                "doc_type": file_path.suffix.lower().lstrip("."),
-                "extracted_text": extracted_text,
-                "keywords": keywords,
-                "file_size": file_size,
-                "last_modified": last_modified
-            }
-            index_changed = True
-
-        # Clean up files from index that were deleted from disk
-        to_delete = [path for path in self.index if path not in valid_paths]
-        if to_delete:
-            for path in to_delete:
-                logger.info(f"Removing deleted file from index: {path}")
-                del self.index[path]
-            index_changed = True
-
-        if index_changed:
+        if updated_count > 0:
             self.save_index()
             logger.info(f"Indexing complete. Index now contains {len(self.index)} files.")
         else:
@@ -174,7 +124,7 @@ class SearchEngine:
         Uses Groq API to parse the natural language query intent into search filters.
         Falls back to regex parsing if the API is offline.
         """
-        if self.groq_client:
+        if getattr(self, "groq_client", None):
             try:
                 return self._parse_intent_with_groq(user_query)
             except Exception as e:
@@ -341,7 +291,6 @@ class SearchEngine:
                     continue
 
             score = 0.0
-            filename_lower = doc["filename"].lower()
             text_lower = doc["extracted_text"].lower()
             sender_lower = doc["sender"].lower()
 

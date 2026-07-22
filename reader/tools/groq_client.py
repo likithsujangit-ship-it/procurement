@@ -1,6 +1,6 @@
 """
-Groq Client Utility Module for EMAIL READER.
-Manages the instantiation and chat completions from the Groq API.
+LLM Client Module for EMAIL READER.
+Configured for GROQ API using groq SDK with automatic model fallback and preflight token quota tracking.
 """
 
 from typing import Dict, Any, List, Optional
@@ -8,6 +8,7 @@ import json
 from groq import Groq
 from config import Config
 from tools.utils import setup_logger
+from tools.token_tracker import check_preflight_quota, record_successful_usage, update_usage_from_429_error
 
 logger = setup_logger("groq_client")
 
@@ -17,14 +18,85 @@ class GroqClient:
 
     def __init__(self) -> None:
         if not Config.GROQ_API_KEY or Config.GROQ_API_KEY == "gsk_your_groq_api_key_here":
-            logger.warning("GROQ_API_KEY is not configured. AI functions will fall back to rule-based mock responses.")
+            logger.warning("GROQ_API_KEY is not configured.")
             self.client = None
         else:
             self.client = Groq(api_key=Config.GROQ_API_KEY)
 
     def is_available(self) -> bool:
-        """Returns True if the Groq client is configured and available."""
+        """Returns True if the LLM client is configured and available."""
         return self.client is not None
+
+    def get_chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "llama-3.3-70b-versatile",
+        temperature: float = 0.2,
+        response_json: bool = False,
+        json_schema: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Requests a multi-turn or single-turn chat completion using Groq API.
+        Includes preflight quota checks and cumulative token usage tracking.
+        """
+        if not self.is_available():
+            raise ValueError("LLM client is not initialized. Please configure GROQ_API_KEY.")
+
+        # Estimate request token cost (rough ~4 chars/token)
+        total_prompt_chars = sum(len(m.get("content", "")) for m in messages)
+        estimated_tokens = max(100, total_prompt_chars // 4)
+
+        if not check_preflight_quota(estimated_tokens):
+            raise Exception("Preflight token quota check failed: Daily token limit reached")
+
+        # Map Gemini or obsolete model names to Groq models if passed
+        if "gemini" in model.lower() or "qwen" in model.lower() or "mixtral" in model.lower() or "gpt-oss" in model.lower():
+            model = "llama-3.3-70b-versatile"
+
+        models_to_try = [model]
+        for alt in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192"):
+            if alt not in models_to_try:
+                models_to_try.append(alt)
+
+        kwargs: Dict[str, Any] = {
+            "messages": messages,
+            "temperature": temperature
+        }
+        
+        if response_json or json_schema:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        last_error = None
+        for current_model in models_to_try:
+            try:
+                logger.debug(f"Calling Groq model={current_model} with JSON mode={response_json}")
+                response = self.client.chat.completions.create(
+                    model=current_model,
+                    **kwargs
+                )
+                
+                # Record token usage from response object
+                actual_tokens = estimated_tokens
+                if hasattr(response, "usage") and response.usage:
+                    actual_tokens = getattr(response.usage, "total_tokens", estimated_tokens)
+                record_successful_usage(actual_tokens)
+                
+                return response.choices[0].message.content.strip()
+
+            except Exception as e:
+                err_msg = str(e)
+                last_error = e
+                logger.warning(f"Groq API call failed for model '{current_model}': {e}")
+
+                if "429" in err_msg or "rate" in err_msg.lower() or "limit" in err_msg.lower():
+                    update_usage_from_429_error(err_msg)
+                    continue
+
+                if "400" in err_msg:
+                    continue
+
+        logger.error(f"All Groq model attempts failed. Last error: {last_error}")
+        raise last_error
 
     def get_completion(
         self,
@@ -32,78 +104,20 @@ class GroqClient:
         user_prompt: str,
         model: str = "llama-3.3-70b-versatile",
         temperature: float = 0.2,
-        response_json: bool = False
+        response_json: bool = False,
+        json_schema: Optional[Dict[str, Any]] = None
     ) -> str:
         """
-        Requests a completion from the Groq API.
-        
-        Args:
-            system_prompt: Context instruction for the model.
-            user_prompt: User instruction or input data.
-            model: Model name.
-            temperature: LLM temperature parameter.
-            response_json: Whether to enforce JSON output format.
-            
-        Returns:
-            The string content of the response.
+        Requests a single-turn completion using Groq API.
         """
-        # # Gemini API Integration (Disabled/Commented Out - Using Groq)
-        # if Config.GEMINI_API_KEY:
-        #     try:
-        #         ...
-        #     except Exception as gemini_err:
-        #         ...
-
-        if not self.is_available():
-            raise ValueError("Groq client is not initialized. Please configure GROQ_API_KEY.")
-
-        logger.debug(f"Calling Groq model={model} with JSON mode={response_json}")
-        
-        kwargs: Dict[str, Any] = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": temperature
-        }
-        
-        if response_json:
-            kwargs["response_format"] = {"type": "json_object"}
-            
-        try:
-            response = self.client.chat.completions.create(**kwargs)
-            content = response.choices[0].message.content.strip()
-            return content
-        except Exception as e:
-            error_msg = str(e).lower()
-            if "rate limit reached" in error_msg or "rate_limit_exceeded" in error_msg or "413" in error_msg or "429" in error_msg:
-                import time
-                logger.warning(f"Rate limit / token limit hit ({e}). Waiting 2s before fallback...")
-                time.sleep(2)
-                
-                # Truncate user prompt to safe size (12,000 characters max ~ 3,000 tokens)
-                truncated_user_prompt = user_prompt
-                if len(user_prompt) > 12000:
-                    half = 6000
-                    truncated_user_prompt = user_prompt[:half] + "\n\n...[TRUNCATED FOR FALLBACK MODEL]...\n\n" + user_prompt[-half:]
-
-                for fallback_model in ["llama-3.1-8b-instant", "mixtral-8x7b-32768", "llama3-70b-8192"]:
-                    if fallback_model == model:
-                        continue
-                    try:
-                        logger.info(f"Retrying with fallback model {fallback_model}...")
-                        kwargs["model"] = fallback_model
-                        kwargs["messages"] = [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": truncated_user_prompt}
-                        ]
-                        response = self.client.chat.completions.create(**kwargs)
-                        content = response.choices[0].message.content.strip()
-                        return content
-                    except Exception as fallback_e:
-                        logger.warning(f"Fallback {fallback_model} failed: {fallback_e}")
-                        time.sleep(1)
-                        
-            logger.error(f"Groq API call failed: {e}")
-            raise
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        return self.get_chat_completion(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            response_json=response_json,
+            json_schema=json_schema
+        )

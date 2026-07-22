@@ -31,7 +31,6 @@ class Config:
 
     # API Keys
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
     # Reader Settings
     DEFAULT_MAX_RESULTS: int = int(os.getenv("DEFAULT_MAX_RESULTS", "5"))
@@ -46,7 +45,7 @@ class Config:
         errors = []
 
         if not cls.GROQ_API_KEY or cls.GROQ_API_KEY == "gsk_your_groq_api_key_here":
-            errors.append("GROQ_API_KEY is not configured or contains placeholder.")
+            errors.append("GROQ_API_KEY is not configured.")
 
         if not cls.CREDENTIALS_PATH.exists():
             errors.append(

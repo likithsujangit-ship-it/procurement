@@ -40,18 +40,37 @@
     "rfq_number": { "type": "string" },
     "rfq_issue_date": { "type": "string" },
     "quotation_due_date": { "type": "string" },
+    "date_extended_from": { "type": ["string", "null"] },
     "items": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "properties": {
-          "line": { "type": "integer" },
-          "part_number": { "type": "string" },
-          "description": { "type": "string" },
-          "quantity": { "type": "integer" },
-          "unit": { "type": "string" },
-          "material_grade": { "type": "string" }
+          "line":           { "type": "integer" },
+          "part_number":    { "type": "string" },
+          "description":    { "type": "string" },
+          "quantity":       { "type": ["integer", "number"] },
+          "unit":           { "type": "string" },
+          "material_grade": { "type": "string" },
+          "unit_price":     { "type": ["number", "null"] },
+          "currency":       { "type": "string" },
+          "line_total":     { "type": ["number", "null"] },
+          "vendor_quotes": {
+            "type": "array",
+            "description": "All vendor bids for this item from a price comparison/evaluation sheet.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "vendor_name":  { "type": "string" },
+                "quoted_price": { "type": "number" },
+                "landed_price": { "type": ["number", "null"] },
+                "rank":         { "type": "string", "description": "L1 = lowest, L2, L3... as shown in source" },
+                "is_selected":  { "type": "boolean", "description": "true only for winning/lowest vendor" }
+              },
+              "required": ["vendor_name", "quoted_price", "rank", "is_selected"]
+            }
+          }
         },
         "required": ["part_number", "description", "quantity", "unit"]
       }
@@ -107,7 +126,7 @@
     "conflicts": {
       "type": "array"
     },
-    "confidence_score": {
+    "llm_confidence_score": {
       "type": "number"
     },
     "procurement_status": {
@@ -126,7 +145,7 @@
   "required": [
     "intent", "document_type", "buyer", "supplier", "rfq_number", "rfq_issue_date", "quotation_due_date", "items", 
     "commercial_terms", "delivery_requirements", "shipping_details", 
-    "attachments", "missing_fields", "conflicts", "confidence_score",
+    "attachments", "missing_fields", "conflicts", "llm_confidence_score",
     "procurement_status", "validation", "missing_procurement_information", "recommendation"
   ]
 }

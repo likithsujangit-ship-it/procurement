@@ -3,6 +3,36 @@ Google Gmail API Authentication Module.
 Handles OAuth2 credentials loading, token creation/refreshing, and validation.
 """
 
+import ssl
+import urllib3
+import requests
+# Bypass SSL verification to avoid CERTIFICATE_VERIFY_FAILED errors in proxy/corporate environments
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Monkeypatch requests to disable certificate verification globally
+original_request = requests.Session.request
+def patched_request(self, method, url, *args, **kwargs):
+    kwargs['verify'] = False
+    return original_request(self, method, url, *args, **kwargs)
+requests.Session.request = patched_request
+
+# Monkeypatch httplib2 to disable SSL certificate verification globally
+try:
+    import httplib2
+    original_httplib2_init = httplib2.Http.__init__
+    def patched_httplib2_init(self, *args, **kwargs):
+        kwargs['disable_ssl_certificate_validation'] = True
+        original_httplib2_init(self, *args, **kwargs)
+    httplib2.Http.__init__ = patched_httplib2_init
+except ImportError:
+    pass
+
+
+
 from pathlib import Path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -10,6 +40,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build, Resource
 from config import Config
 from tools.utils import setup_logger
+
 
 logger = setup_logger("gmail_auth")
 

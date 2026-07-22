@@ -1,0 +1,78 @@
+{
+  "request_for_quotation": {
+    "required_fields": [
+      "rfq_number",
+      "buyer.company_name",
+      "supplier.company_name",
+      "rfq_issue_date",
+      "quotation_due_date",
+      "items",
+      "delivery_requirements"
+    ],
+    "optional_fields": [
+      "buyer.contact_title",
+      "supplier.contact_title"
+    ]
+  },
+  "purchase_order": {
+    "required_fields": [
+      "po_number",
+      "buyer.company_name",
+      "supplier.company_name",
+      "po_date",
+      "items",
+      "commercial_terms",
+      "commercial_terms.gst_rate",
+      "commercial_terms.tds_rate",
+      "commercial_terms.security_deposit",
+      "commercial_terms.performance_bank_guarantee",
+      "commercial_terms.liquidated_damages",
+      "commercial_terms.delivery_requirement",
+      "approval"
+    ],
+    "optional_fields": [
+      "buyer.contact_title",
+      "supplier.contact_title"
+    ]
+  },
+  "invoice": {
+    "required_fields": [
+      "invoice_number",
+      "invoice_date",
+      "buyer.company_name",
+      "supplier.company_name",
+      "items",
+      "commercial_terms.payment_terms",
+      "commercial_terms.amount_due"
+    ],
+    "optional_fields": []
+  },
+  "delivery_note": {
+    "required_fields": [
+      "delivery_note_number",
+      "buyer.company_name",
+      "supplier.company_name",
+      "dispatch_date",
+      "items"
+    ],
+    "optional_fields": []
+  },
+  "quotation_response": {
+    "required_fields": [
+      "quotation_number",
+      "buyer.company_name",
+      "supplier.company_name",
+      "quotation_date",
+      "items"
+    ],
+    "optional_fields": []
+  },
+  "vendor_price_list": {
+    "required_fields": [
+      "supplier.company_name",
+      "effective_date",
+      "items"
+    ],
+    "optional_fields": []
+  }
+}

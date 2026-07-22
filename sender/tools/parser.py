@@ -1,7 +1,7 @@
 """
 Command Parser Module for EMAIL SENDER.
 Extracts email details (recipients, attachments, subject, body, tone) 
-from natural language using the Groq Llama 3.3 70B model with a regex fallback.
+from natural language using Groq LLM (llama-3.3-70b-versatile) with a regex fallback.
 """
 
 import json
@@ -19,22 +19,15 @@ def parse_natural_language_command(command: str) -> Dict[str, Any]:
     """
     Parses a natural language instruction to extract email metadata.
     Uses Groq API for structural extraction, with fallback to basic regex.
-    
-    Args:
-        command: The natural language prompt from the user.
-        
-    Returns:
-        A dictionary with extracted email details.
     """
     logger.info(f"Parsing natural language instruction: '{command}'")
     
-    # Try using Groq if key is set and valid
     if Config.GROQ_API_KEY and Config.GROQ_API_KEY != "gsk_your_groq_api_key_here":
         try:
             return _parse_with_groq(command)
         except Exception as e:
             logger.error(f"Groq parsing failed: {e}. Falling back to regex parser.")
-            
+
     return _parse_with_regex(command)
 
 
@@ -53,20 +46,9 @@ def _parse_with_groq(command: str) -> Dict[str, Any]:
         "- 'subject_hint': string (any mention of subject or context, or empty string)\n"
         "- 'body_hint': string (any mention of what to say, or empty string)\n"
         "- 'tone': string (one of: 'professional', 'casual', 'formal', 'follow-up', 'thank-you', 'meeting-request', 'leave-request', 'internship-request', 'complaint', 'support', 'application', 'reminder', or 'default')\n"
-        "- 'attachments': list of strings (filenames mentioned like 'resume.pdf', 'marks.pdf')\n\n"
-        "Example input: 'Send resume.pdf and marks.pdf to hr@gmail.com regarding internship saying I want to apply.'\n"
-        "Example output:\n"
-        "{\n"
-        "  \"recipients\": [\"hr@gmail.com\"],\n"
-        "  \"cc\": [],\n"
-        "  \"bcc\": [],\n"
-        "  \"subject_hint\": \"internship\",\n"
-        "  \"body_hint\": \"I want to apply\",\n"
-        "  \"tone\": \"internship-request\",\n"
-        "  \"attachments\": [\"resume.pdf\", \"marks.pdf\"]\n"
-        "}"
+        "- 'attachments': list of strings (filenames mentioned like 'resume.pdf', 'marks.pdf')\n"
     )
-    
+
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
@@ -76,17 +58,14 @@ def _parse_with_groq(command: str) -> Dict[str, Any]:
         temperature=0.0,
         response_format={"type": "json_object"}
     )
-    
+
     raw_content = response.choices[0].message.content.strip()
     logger.debug(f"Raw response from Groq parser: {raw_content}")
-    
     data = json.loads(raw_content)
-    
-    # Resolve names like 'hr' using the contacts module
+
     data["recipients"] = [resolve_contact(r) for r in data.get("recipients", [])]
     data["cc"] = [resolve_contact(c) for c in data.get("cc", [])]
     data["bcc"] = [resolve_contact(b) for b in data.get("bcc", [])]
-    
     return data
 
 
@@ -98,64 +77,53 @@ def _parse_with_regex(command: str) -> Dict[str, Any]:
     email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
     found_emails = re.findall(email_pattern, command)
     
-    # Check for known contact keywords
-    keywords = ["hr", "manager", "admin", "support", "billing"]
-    recipients = list(found_emails)
-    for kw in keywords:
-        if re.search(r'\b' + kw + r'\b', command, re.IGNORECASE):
-            recipients.append(resolve_contact(kw))
+    # 2. Extract potential contact aliases (hr, boss, manager, team)
+    words = command.lower().split()
+    alias_matches = []
+    for w in words:
+        resolved = resolve_contact(w)
+        if resolved != w and "@" in resolved and resolved not in found_emails:
+            alias_matches.append(resolved)
             
-    # Remove duplicates
-    recipients = list(dict.fromkeys(recipients))
+    recipients = list(dict.fromkeys(found_emails + alias_matches))
     
-    # 2. Extract attachments (e.g. filename.ext)
-    file_pattern = r'\b[\w-]+\.(?:pdf|docx|doc|ppt|pptx|zip|rar|png|jpeg|jpg|xlsx|xls|csv|txt)\b'
+    # 3. Extract attachment filenames
+    file_pattern = r'\b[a-zA-Z0-9_\-]+\.(?:pdf|docx?|xlsx?|png|jpg|txt)\b'
     attachments = re.findall(file_pattern, command, re.IGNORECASE)
-    attachments = list(dict.fromkeys(attachments))
     
-    # 3. Detect tone
+    # 4. Infer tone from context keywords
+    cmd_lower = command.lower()
     tone = "default"
-    tone_mappings = {
-        "professional": ["professional", "work"],
-        "casual": ["casual", "friendly", "informal"],
-        "formal": ["formal", "official"],
-        "follow-up": ["follow-up", "followup"],
-        "thank-you": ["thank you", "thanks", "gratitude"],
-        "meeting-request": ["meeting", "schedule", "appointment"],
-        "leave-request": ["leave", "sick", "vacation"],
-        "internship-request": ["internship", "intern"],
-        "complaint": ["complaint", "issue", "complain"],
-        "support": ["support", "help"],
-        "application": ["apply", "application", "resume", "job"],
-        "reminder": ["remind", "reminder"]
-    }
-    
-    lower_command = command.lower()
-    for t_name, words in tone_mappings.items():
-        if any(w in lower_command for w in words):
-            tone = t_name
-            break
-            
-    # 4. Rough subject and body hint extraction
-    subject_hint = ""
-    body_hint = ""
-    
-    # Check for "regarding..." or "about..."
-    about_match = re.search(r'\b(?:regarding|about|subject)\s+([^.]+)', command, re.IGNORECASE)
-    if about_match:
-        subject_hint = about_match.group(1).strip()
-        
-    # Check for "saying..."
-    saying_match = re.search(r'\b(?:saying|message|content)\s+([^.]+)', command, re.IGNORECASE)
-    if saying_match:
-        body_hint = saying_match.group(1).strip()
-        
+    if "internship" in cmd_lower:
+        tone = "internship-request"
+    elif "leave" in cmd_lower or "vacation" in cmd_lower:
+        tone = "leave-request"
+    elif "meeting" in cmd_lower or "schedule" in cmd_lower:
+        tone = "meeting-request"
+    elif "complaint" in cmd_lower or "issue" in cmd_lower:
+        tone = "complaint"
+    elif "formal" in cmd_lower:
+        tone = "formal"
+    elif "casual" in cmd_lower:
+        tone = "casual"
+
+    # 5. Extract subject hint
+    subject_match = re.search(r'regarding\s+([^.\n]+)', command, re.IGNORECASE)
+    subject_hint = subject_match.group(1).strip() if subject_match else ""
+    if not subject_hint:
+        sub_about = re.search(r'about\s+([^.\n]+)', command, re.IGNORECASE)
+        subject_hint = sub_about.group(1).strip() if sub_about else ""
+
+    # 6. Extract body hint
+    body_match = re.search(r'saying\s+([^.\n]+)', command, re.IGNORECASE)
+    body_hint = body_match.group(1).strip() if body_match else command
+
     return {
         "recipients": recipients,
         "cc": [],
         "bcc": [],
         "subject_hint": subject_hint,
-        "body_hint": body_hint or command,
+        "body_hint": body_hint,
         "tone": tone,
         "attachments": attachments
     }
