@@ -1,6 +1,6 @@
 """
 LLM Client Module for EMAIL READER.
-Configured for GROQ API using groq SDK with automatic API key rotation and model fallback.
+Configured for GROQ API using groq SDK with single API key and model fallback.
 """
 
 from typing import Dict, Any, List, Optional
@@ -14,7 +14,7 @@ logger = setup_logger("groq_client")
 
 
 class GroqClient:
-    """Wrapper class around the Groq API client with auto key-rotation on rate limits."""
+    """Wrapper class around the Groq API client configured for a single GROQ_API_KEY."""
 
     def __init__(self) -> None:
         import os
@@ -22,39 +22,20 @@ class GroqClient:
         # Dynamic reload of .env to pick up any changes
         load_dotenv(override=True)
 
-        self.api_keys = []
-        # Populate all configured keys from env
-        for key_name in ["GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3", "GROQ_API_KEY_4", "GROQ_API_KEY_5"]:
-            k = os.getenv(key_name, "").strip()
-            if k and k != "gsk_your_groq_api_key_here":
-                if k not in self.api_keys:
-                    self.api_keys.append(k)
+        self.api_key = os.getenv("GROQ_API_KEY", "").strip()
+        if not self.api_key or self.api_key == "gsk_your_groq_api_key_here":
+            self.api_key = Config.GROQ_API_KEY
 
-        # Fallback to Config.GROQ_API_KEY if not in list
-        if Config.GROQ_API_KEY and Config.GROQ_API_KEY != "gsk_your_groq_api_key_here":
-            if Config.GROQ_API_KEY not in self.api_keys:
-                self.api_keys.insert(0, Config.GROQ_API_KEY)
-
-        self.current_key_idx = 0
         self._init_client()
 
     def _init_client(self) -> None:
-        if not self.api_keys:
-            logger.warning("No GROQ API keys are configured.")
+        if not self.api_key or self.api_key == "gsk_your_groq_api_key_here":
+            logger.warning("No GROQ API key is configured.")
             self.client = None
         else:
-            current_key = self.api_keys[self.current_key_idx]
-            prefix = current_key[:15] if current_key else "none"
-            logger.info(f"Initializing Groq client with key index {self.current_key_idx} (prefix: {prefix})")
-            self.client = Groq(api_key=current_key)
-
-    def rotate_key(self) -> bool:
-        """Rotates to the next available API key. Returns True if rotated, False if only 1 key configured."""
-        if len(self.api_keys) <= 1:
-            return False
-        self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
-        self._init_client()
-        return True
+            prefix = self.api_key[:15] if self.api_key else "none"
+            logger.info(f"Initializing Groq client (prefix: {prefix})")
+            self.client = Groq(api_key=self.api_key)
 
     def is_available(self) -> bool:
         """Returns True if the LLM client is configured and available."""
@@ -70,7 +51,7 @@ class GroqClient:
     ) -> str:
         """
         Requests a multi-turn or single-turn chat completion using Groq API.
-        Includes automatic model fallbacks and multi-key rotation on 429 errors.
+        Includes automatic model fallbacks.
         """
         if not self.is_available():
             raise ValueError("LLM client is not initialized. Please configure GROQ_API_KEY.")
@@ -101,39 +82,33 @@ class GroqClient:
 
         last_error = None
         for current_model in models_to_try:
-            # We allow up to len(self.api_keys) attempts per model if rate limits occur
-            key_attempts = max(1, len(self.api_keys))
-            for attempt in range(key_attempts):
-                try:
-                    logger.debug(f"Calling Groq model={current_model} with JSON mode={response_json} (key index={self.current_key_idx})")
-                    response = self.client.chat.completions.create(
-                        model=current_model,
-                        **kwargs
-                    )
-                    
-                    # Record token usage from response object
-                    actual_tokens = estimated_tokens
-                    if hasattr(response, "usage") and response.usage:
-                        actual_tokens = getattr(response.usage, "total_tokens", estimated_tokens)
-                    record_successful_usage(actual_tokens)
-                    
-                    return response.choices[0].message.content.strip()
+            try:
+                logger.debug(f"Calling Groq model={current_model} with JSON mode={response_json}")
+                response = self.client.chat.completions.create(
+                    model=current_model,
+                    **kwargs
+                )
+                
+                # Record token usage from response object
+                actual_tokens = estimated_tokens
+                if hasattr(response, "usage") and response.usage:
+                    actual_tokens = getattr(response.usage, "total_tokens", estimated_tokens)
+                record_successful_usage(actual_tokens)
+                
+                return response.choices[0].message.content.strip()
 
-                except Exception as e:
-                    err_msg = str(e)
-                    last_error = e
-                    logger.warning(f"Groq API call failed for model '{current_model}' (key index={self.current_key_idx}): {e}")
+            except Exception as e:
+                err_msg = str(e)
+                last_error = e
+                logger.warning(f"Groq API call failed for model '{current_model}': {e}")
 
-                    # Check for rate limit / 429 error
-                    if "429" in err_msg or "rate" in err_msg.lower() or "limit" in err_msg.lower():
-                        update_usage_from_429_error(err_msg)
-                        if self.rotate_key():
-                            logger.warning(f"Rate limit hit! Rotated to key index {self.current_key_idx}. Retrying same model...")
-                            continue  # Retry key loop on current model
-                    
-                    # If it's a JSON validation error or other 400 error, switch to next model immediately
-                    if "400" in err_msg:
-                        break  # Break key_attempts loop to go to next model fallback
+                # Check for rate limit / 429 error
+                if "429" in err_msg or "rate" in err_msg.lower() or "limit" in err_msg.lower():
+                    update_usage_from_429_error(err_msg)
+                
+                # If it's a JSON validation error or other 400 error, switch to next model immediately
+                if "400" in err_msg:
+                    continue
 
         logger.error(f"All Groq model attempts failed. Last error: {last_error}")
         raise last_error
