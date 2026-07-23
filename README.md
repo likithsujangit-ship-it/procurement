@@ -150,6 +150,10 @@ EMAIL_AI/
 
 ## Setup & API Integration
 
+### Prerequisites & External Dependencies
+* **Java Runtime Environment (JRE/JDK):** Since legacy formats (`.doc`, `.rtf`, `.odt`, `.ods`) are parsed using **Apache Tika**, you **must** have Java installed and on your system path at runtime to launch the Tika VM.
+* **Tesseract-OCR:** Required for content-aware OCR processing of scanned PDF documents and plain images.
+
 ### 1. Google Cloud OAuth Setup (Reader API)
 * Enable the **Gmail API** in Google Cloud Console.
 * Set Publishing status to **Testing** and add your testing email address under **Test Users**.

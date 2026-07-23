@@ -84,15 +84,17 @@ class SearchEngine:
     def update_index(self) -> None:
         """
         Recursively scans DOWNLOAD_DIR for files.
-        Extracts content, computes SHA-256 checksums, and updates search_index.json.
+        Extracts content, computes SHA-256 checksums, updates search_index.json, and prunes stale entries.
         """
         logger.info(f"Scanning directory for indexing: {Config.DOWNLOAD_DIR}")
         updated_count = 0
+        found_paths = set()
 
         for path in Config.DOWNLOAD_DIR.rglob("*"):
             if path.is_file():
                 try:
                     rel_path = str(path.relative_to(Config.DOWNLOAD_DIR))
+                    found_paths.add(rel_path)
                     mtime = os.path.getmtime(path)
                     file_size = path.stat().st_size
                     
@@ -112,6 +114,14 @@ class SearchEngine:
                     updated_count += 1
                 except Exception as e:
                     logger.warning(f"Error indexing file {path.name}: {e}")
+
+        # Prune stale/deleted files from the index
+        stale_paths = [p for p in self.index if p not in found_paths]
+        if stale_paths:
+            for p in stale_paths:
+                del self.index[p]
+            updated_count += len(stale_paths)
+            logger.info(f"Pruned {len(stale_paths)} stale entries from search index.")
 
         if updated_count > 0:
             self.save_index()

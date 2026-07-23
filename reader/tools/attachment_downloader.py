@@ -44,13 +44,29 @@ def download_attachment(
         
         file_data = base64.urlsafe_b64decode(attachment["data"].encode("utf-8"))
         
+        # Sanitize filename to prevent path traversal, null bytes, or dangerous Windows reserved names
+        import re
+        safe_filename = Path(filename).name
+        safe_filename = safe_filename.replace("\x00", "")
+        safe_filename = re.sub(r'\.+[/\\]', '', safe_filename)
+        
+        stem = Path(safe_filename).stem
+        suffix = Path(safe_filename).suffix.lower()
+        clean_stem = "".join(c for c in stem if c.isalnum() or c in ("-", "_", "."))
+        if not clean_stem:
+            clean_stem = "unnamed_attachment"
+            
+        reserved_names = {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}
+        if clean_stem.upper() in reserved_names:
+            clean_stem = f"safe_{clean_stem}"
+            
+        safe_filename = f"{clean_stem}{suffix}"
+        
         # Determine unique filename to avoid overwriting existing files
-        save_path = target_dir / filename
+        save_path = target_dir / safe_filename
         counter = 1
         while save_path.exists():
-            stem = Path(filename).stem
-            suffix = Path(filename).suffix
-            save_path = target_dir / f"{stem}_{counter}{suffix}"
+            save_path = target_dir / f"{clean_stem}_{counter}{suffix}"
             counter += 1
 
         # Write to disk
@@ -91,15 +107,14 @@ def download_all_attachments(
     sender_raw = email_data.get("sender", "")
     email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
     if email_match:
-        email = email_match.group(0)
+        email = email_match.group(0).lower().strip()
+        username, domain = email.split("@", 1)
+        clean_user = "".join(c for c in username if c.isalnum() or c in ("-", "_", "."))
+        clean_domain = "".join(c for c in domain if c.isalnum() or c in ("-", "_", "."))
+        prefix = f"{clean_user}_{clean_domain}" if clean_user else "unknown"
     else:
-        email = sender_raw.strip().lower()
-        
-    prefix = email.split("@")[0].strip() if "@" in email else email
-    # Clean the prefix to make it a valid folder name
-    prefix = "".join(c for c in prefix if c.isalnum() or c in ("-", "_", "."))
-    if not prefix:
-        prefix = "unknown"
+        prefix = "".join(c for c in sender_raw if c.isalnum() or c in ("-", "_", "."))
+        prefix = prefix.strip().lower() or "unknown"
 
     # 2. Create the organizer subfolder with date/month/year-(time) with milliseconds
     from datetime import datetime

@@ -202,11 +202,15 @@ def save_extraction_outputs(
     # 1. Parse sender email prefix
     sender_raw = email_data.get("sender", "")
     email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
-    email = email_match.group(0) if email_match else sender_raw.strip().lower()
-    prefix = email.split("@")[0].strip() if "@" in email else email
-    prefix = "".join(c for c in prefix if c.isalnum() or c in ("-", "_", "."))
-    if not prefix:
-        prefix = "unknown"
+    if email_match:
+        email = email_match.group(0).lower().strip()
+        username, domain = email.split("@", 1)
+        clean_user = "".join(c for c in username if c.isalnum() or c in ("-", "_", "."))
+        clean_domain = "".join(c for c in domain if c.isalnum() or c in ("-", "_", "."))
+        prefix = f"{clean_user}_{clean_domain}" if clean_user else "unknown"
+    else:
+        prefix = "".join(c for c in sender_raw if c.isalnum() or c in ("-", "_", "."))
+        prefix = prefix.strip().lower() or "unknown"
 
     # 2. Parse timestamp folder name matching download format
     internal_date_ms = email_data.get("internalDate")
@@ -295,7 +299,15 @@ def save_extraction_outputs(
             # Find attachment paths from files directory or temporary workspace
             sender_raw = email_data.get("sender", "unknown")
             m = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
-            clean_prefix = re.sub(r'[^a-zA-Z0-9._-]', '', m.group(0).split('@')[0]) if m else "unknown"
+            if m:
+                email = m.group(0).lower().strip()
+                username, domain = email.split("@", 1)
+                clean_user = "".join(c for c in username if c.isalnum() or c in ("-", "_", "."))
+                clean_domain = "".join(c for c in domain if c.isalnum() or c in ("-", "_", "."))
+                clean_prefix = f"{clean_user}_{clean_domain}" if clean_user else "unknown"
+            else:
+                clean_prefix = "".join(c for c in sender_raw if c.isalnum() or c in ("-", "_", "."))
+                clean_prefix = clean_prefix.strip().lower() or "unknown"
             
             att_paths = []
             files_sender_dir = Config.DOWNLOAD_DIR / clean_prefix

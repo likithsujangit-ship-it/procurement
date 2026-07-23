@@ -41,9 +41,13 @@ On your first run, a browser tab will open asking you to authenticate. After gra
 
 ## Dependencies & External Tools
 
-This package requires Python 3.13 and some external document-reading packages.
+This package requires Python 3.13 and some external document-reading dependencies:
 
-### Tesseract OCR Installation (For Images)
+### 1. Java Runtime Environment (JRE/JDK)
+* **Required for:** Parsing legacy formats (`.doc`, `.rtf`, `.odt`, `.ods`) using **Apache Tika**.
+* **Prerequisite:** Java must be installed on your machine and available in your System Env `PATH` at runtime.
+
+### 2. Tesseract OCR Installation (For Images)
 - **macOS**: Install Tesseract using Homebrew:
   ```bash
   brew install tesseract

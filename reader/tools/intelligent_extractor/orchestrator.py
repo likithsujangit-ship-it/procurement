@@ -349,11 +349,15 @@ class PipelineOrchestrator:
         # Determine output folder
         sender_raw = email_metadata.get("sender", "unknown_sender")
         email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
-        email = email_match.group(0) if email_match else sender_raw.strip().lower()
-        prefix = email.split("@")[0].strip() if "@" in email else email
-        prefix = "".join(c for c in prefix if c.isalnum() or c in ("-", "_", "."))
-        if not prefix:
-            prefix = "unknown"
+        if email_match:
+            email = email_match.group(0).lower().strip()
+            username, domain = email.split("@", 1)
+            clean_user = "".join(c for c in username if c.isalnum() or c in ("-", "_", "."))
+            clean_domain = "".join(c for c in domain if c.isalnum() or c in ("-", "_", "."))
+            prefix = f"{clean_user}_{clean_domain}" if clean_user else "unknown"
+        else:
+            prefix = "".join(c for c in sender_raw if c.isalnum() or c in ("-", "_", "."))
+            prefix = prefix.strip().lower() or "unknown"
         
         internal_date_ms = email_metadata.get("internal_date_ms") or email_metadata.get("internalDate")
         date_raw = email_metadata.get("date", "")
