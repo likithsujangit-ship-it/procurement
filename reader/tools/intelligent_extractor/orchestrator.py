@@ -234,9 +234,9 @@ class PipelineOrchestrator:
                     context_chunks = [attachment_context]
                     first_context = attachment_context
                     
-                # Classify attachment context
+                # Classify attachment context based ONLY on its own content to prevent email subject bleed
                 logger.info(f"Classifying attachment {att['filename']}...")
-                classification = self.classifier.classify(first_context)
+                classification = self.classifier.classify(att['raw_text'])
                 logger.info(f"Attachment '{att['filename']}' classified as intent: {classification.intent}")
                 
                 # Pre-extraction Regex Pass
@@ -298,6 +298,15 @@ class PipelineOrchestrator:
                 if not doc_types:
                     doc_types = ["RFQ"]
                 result_json["document_type"] = doc_types
+
+        # Call LLM to synthesize the hierarchical package JSON structure
+        if self.extractor.llm and self.extractor.llm.is_available():
+            try:
+                hierarchical_json = self.generate_hierarchical_json(email_metadata, email_body, individual_results, attachments_data)
+                if hierarchical_json:
+                    result_json.update(hierarchical_json)
+            except Exception as e:
+                logger.warning(f"Failed to generate hierarchical JSON: {e}")
 
         return self._save_outputs(email_metadata, email_body, result_json, attachment_paths)
 
@@ -402,3 +411,118 @@ class PipelineOrchestrator:
             
         logger.info(f"Pipeline completed with status '{result_json.get('extraction_status')}'. Saved JSON and summary to {output_dir}")
         return result_json
+
+    def generate_hierarchical_json(self, email_metadata: Dict[str, Any], email_body: str, individual_results: List[Dict[str, Any]], attachments_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Uses LLM to synthesize all individual extraction results and raw file contents into a unified hierarchical JSON structure matching user preferences."""
+        system_prompt = (
+            "You are a master procurement data engineer. Your task is to analyze the email details, "
+            "individual file extraction results, and the raw text of all attachments, and synthesize them "
+            "into a single, highly structured, comprehensive hierarchical JSON document.\n\n"
+            "You must respond ONLY with a valid JSON object. Do not include any markdown formatting (like ```json), conversational filler, or explanations.\n\n"
+            "DIRECTIVES FOR EXTRACTION:\n"
+            "1. procurement_summary:\n"
+            "   - 'buyer': Complete name with project details (e.g., 'Andhra Pradesh Power Generation Corporation Ltd (APGENCO) - Dr.MVR Rayalaseema Thermal Power Project O&M').\n"
+            "   - 'item': Complete name (e.g., 'Jyoti Make C-JET Fire Fighting Hose, 63MM Dia with SS Coupling, 15 Mtrs Length, Type-B').\n"
+            "   - 'material_code': The 9-digit material code (e.g., '200017447').\n"
+            "   - 'hsn_sac_code': The HSN/SAC code (e.g., '5909').\n"
+            "   - 'enquiry_no': The full enquiry number with purchase department prefix (e.g., 'M100028013/CE/O&M/SE/ADM/DE/PUR-II/M09/25-26').\n"
+            "   - 'po_no': The final purchase order number (e.g., '4500033192').\n"
+            "   - 'selected_vendor': Full supplier name (e.g., 'M/s Jyoti Rubber Udyog (India) Limited, New Delhi').\n"
+            "   - 'final_po_value_inr': Numeric purchase value (e.g., 197500).\n"
+            "   - 'process_flow': A chronological list of steps from RFQ enquiry issuance to final PO placement, including dates and details (e.g., Enquiry issued on 31.05.2025, bids received, technical evaluation, negotiation letter sent on 04.08.2025, reply on 06.08.2025, office note, PO issued on 29.11.2025).\n"
+            "2. documents:\n"
+            "   - Include EVERY single attachment file as a separate object in this array. Do not skip any file.\n"
+            "   - For each file, extract the 'document_type' (e.g., 'Enquiry / Notice Inviting Tender (NIT) / RFQ', 'Price Evaluation / Comparative Statement (4 Firms)', 'Price Negotiation & Clarification Letter (to L1 vendor)', 'Technical Bid Remarks Sheet (TBR) - Technical & Price Bid', 'Office Note - Technical Bid Approval & Purchase Recommendation (with 4 firms)', 'Purchase Order (Final PO)').\n"
+            "   - Extract all specific attributes, clauses, lists, dates, and signatories for each document.\n"
+            "3. vendor_master_data & buyer_master_data:\n"
+            "   - Populate all details fully: name, registered address, primary and secondary emails, phone numbers, vendor code, PAN, GST number, E-procurement ID, tender ID, MSME status.\n"
+            "4. item_master_data:\n"
+            "   - Fully detail the material code, HSN code, short description, brand, diameter ('63 MM'), length ('15 Meters'), type ('Type-B'), coupling details, standards, approvals, technical ratings, and special features.\n\n"
+            "The JSON object must follow this exact schema structure:\n"
+            "{\n"
+            "  \"procurement_summary\": {\n"
+            "    \"buyer\": \"string\",\n"
+            "    \"item\": \"string\",\n"
+            "    \"material_code\": \"string\",\n"
+            "    \"hsn_sac_code\": \"string\",\n"
+            "    \"enquiry_no\": \"string\",\n"
+            "    \"po_no\": \"string\",\n"
+            "    \"selected_vendor\": \"string\",\n"
+            "    \"final_po_value_inr\": number or null,\n"
+            "    \"process_flow\": [ \"Step 1...\", \"Step 2...\" ]\n"
+            "  },\n"
+            "  \"documents\": [\n"
+            "     // For each document, specify document_type, source_file, and all key attributes extracted from it\n"
+            "  ],\n"
+            "  \"vendor_master_data\": {\n"
+            "    \"name\": \"string\",\n"
+            "    \"brand\": \"string\",\n"
+            "    \"address_registered\": \"string\",\n"
+            "    \"phone\": \"string\",\n"
+            "    \"mobile\": \"string\",\n"
+            "    \"email_primary\": \"string\",\n"
+            "    \"email_secondary\": \"string\",\n"
+            "    \"vendor_code_apgenco\": \"string\",\n"
+            "    \"pan_no\": \"string\",\n"
+            "    \"gst_no\": \"string\",\n"
+            "    \"msme_status\": \"string\",\n"
+            "    \"quotation_ref\": \"string\",\n"
+            "    \"e_proc_tender_id\": \"string\"\n"
+            "  },\n"
+            "  \"buyer_master_data\": {\n"
+            "    \"name\": \"string\",\n"
+            "    \"type\": \"string\",\n"
+            "    \"project\": \"string\",\n"
+            "    \"location\": \"string\",\n"
+            "    \"gst_no\": \"string\",\n"
+            "    \"pan_no\": \"string\",\n"
+            "    \"purchase_dept\": \"string\"\n"
+            "  },\n"
+            "  \"item_master_data\": {\n"
+            "    \"material_code\": \"string\",\n"
+            "    \"hsn_sac_code\": \"string\",\n"
+            "    \"description_short\": \"string\",\n"
+            "    \"brand\": \"string\",\n"
+            "    \"diameter\": \"string\",\n"
+            "    \"length\": \"string\",\n"
+            "    \"type\": \"string\",\n"
+            "    \"coupling\": \"string\",\n"
+            "    \"standards\": [ \"string\" ],\n"
+            "    \"approvals\": [ \"string\" ],\n"
+            "    \"technical_ratings\": {},\n"
+            "    \"special_features\": \"string\"\n"
+            "  }\n"
+            "}"
+        )
+
+        attachment_texts = []
+        for att in attachments_data:
+            attachment_texts.append(
+                f"Filename: {att['filename']}\nRaw Text:\n{att['raw_text'][:10000]}\n---"
+            )
+
+        user_prompt = (
+            f"EMAIL DETAILS:\nSubject: {email_metadata.get('subject')}\nBody:\n{email_body}\n\n"
+            f"INDIVIDUAL EXTRACTIONS FROM ATTACHMENTS:\n{json.dumps(individual_results, indent=2)}\n\n"
+            f"RAW ATTACHMENT TEXTS:\n" + "\n".join(attachment_texts) + "\n\n"
+            "Produce the final synthesized JSON now."
+        )
+
+        try:
+            res_str = self.extractor.llm.get_chat_completion(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                model="llama-3.3-70b-versatile",
+                response_json=True
+            )
+            if "```" in res_str:
+                parts = res_str.split("```")
+                res_str = parts[1] if len(parts) > 1 else parts[0]
+                if res_str.startswith("json"):
+                    res_str = res_str[4:]
+            return json.loads(res_str.strip())
+        except Exception as e:
+            logger.warning(f"Error in generate_hierarchical_json LLM call: {e}")
+            return {}

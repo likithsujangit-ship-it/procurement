@@ -42,6 +42,83 @@
         "null"
       ]
     },
+    "invoice_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Invoice issuance date"
+    },
+    "rfq_issue_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Request for quotation issue date"
+    },
+    "quotation_due_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Quotation due date"
+    },
+    "date_extended_from": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Original quotation due date before extension"
+    },
+    "po_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Purchase order date"
+    },
+    "delivery_note_number": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Delivery challan, manifest, or packing slip number"
+    },
+    "dispatch_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Dispatch or shipment date from delivery note"
+    },
+    "quotation_number": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Supplier quotation reference number"
+    },
+    "quotation_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Supplier quotation date"
+    },
+    "effective_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Effective date of vendor price list catalog"
+    },
+    "valid_until": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Expiry date of vendor price list catalog"
+    },
     "shipment_id": {
       "type": [
         "string",
@@ -70,7 +147,8 @@
           "type": "string"
         },
         "delivery_requirement": {
-          "type": "string"
+          "type": "string",
+          "description": "Delivery period or requirement, e.g., within 30 days from receipt of PO"
         },
         "gst_rate": {
           "type": "string"
@@ -82,7 +160,8 @@
           "type": "string"
         },
         "performance_bank_guarantee": {
-          "type": "string"
+          "type": "string",
+          "description": "Performance bank guarantee rate or requirement, e.g., 10% value of purchase order"
         },
         "liquidated_damages": {
           "type": "string"
@@ -107,7 +186,12 @@
       "type": "object"
     },
     "approval": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "approved_by": { "type": "string" },
+        "approval_date": { "type": "string" }
+      }
     },
     "attachments": {
       "type": "array",

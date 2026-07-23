@@ -71,9 +71,9 @@
         "gst_rate": { "type": "string" },
         "tds_rate": { "type": "string" },
         "security_deposit": { "type": "string" },
-        "performance_bank_guarantee": { "type": "string" },
+        "performance_bank_guarantee": { "type": "string", "description": "Performance bank guarantee rate or requirement, e.g., 10% value of purchase order" },
         "liquidated_damages": { "type": "string" },
-        "delivery_requirement": { "type": "string" },
+        "delivery_requirement": { "type": "string", "description": "Delivery period or requirement, e.g., within 30 days from receipt of PO" },
         "landed_price_methodology": { "type": "string" }
       },
       "required": ["payment_terms", "incoterms", "currency", "total_order_value", "delivery_schedule"],
@@ -83,7 +83,12 @@
       "type": "object"
     },
     "approval": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "approved_by": { "type": "string" },
+        "approval_date": { "type": "string" }
+      }
     },
     "attachments": {
       "type": "array",

@@ -130,7 +130,7 @@ EMAIL_AI/
   7. **Missing Fields Audit**: Tracks expected schema fields missing from source documents.
   8. **Dynamic Confidence Score**: Computes a Float (0.0–1.0) adjusted for conflicts, missing fields, or OCR artifacts.
 * **Directory Layout Parity**: Output files are written to `reader/outputs/<sender_prefix>/<DD-MM-YYYY-(HH_MM_SS_fff)>/`:
-  * `<sender_prefix>_extracted_data.json` (Flat structured JSON object matching master schema)
+  * `<sender_prefix>_extracted_data.json` (Hierarchical nested JSON containing `procurement_summary`, `documents`, `vendor_master_data`, `buyer_master_data`, and `item_master_data`)
   * `<sender_prefix>_summary.txt` (Human-readable executive text report)
 * **Zero Extra File Clutter**: Ensures no secondary dynamic JSON files or root outputs are created.
 
