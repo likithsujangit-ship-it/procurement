@@ -120,6 +120,13 @@ EMAIL_AI/
 
 ### 4. Enterprise Document-Intelligence Extraction Engine (`reader/tools/intelligent_extractor/`)
 * **Master Procurement Schema**: Standardized top-level extraction payload covering `intent`, `document_type`, `buyer`, `supplier`, `rfq_number`, `po_number`, `invoice_number`, `shipment_id`, `items`, `commercial_terms`, `delivery_requirements`, `shipping_details`, `approval`, `attachments`, `missing_fields`, `conflicts`, and `confidence_score`.
+* **Domain-Aware Folder Naming**: Automatically creates output and download folders using **`<username>_<domain.com>`** (e.g., `likithtech2006_gmail.com/timestamp/`), preventing directory collisions between senders with identical usernames on different domain providers.
+* **Per-Attachment JSON Exporter**: Saves individual `.json` extraction files for **every single attachment** inside the **`individual_documents/`** subfolder:
+  * `individual_documents/doc_1_M100028013-M09.json`
+  * `individual_documents/doc_2_M28013-Fire_Hoses.json`
+* **Calculated 5-Signal Confidence Scoring Engine (`confidence_scorer.py`)**: Computes mathematical confidence scores combining field presence, schema repair penalties, regex validation, conflict deductions, and LLM self-assessments.
+* **Upstream OCR Character Correction (`pdf_reader.py`)**: Pre-processing regex layer that normalizes Tesseract OCR misreads (e.g. `ROOMNO.S09`/`509` $\rightarrow$ `Room No.309`, `Dr NTTPS RPP` $\rightarrow$ `Dr. MVR RTPP`) before text reaches LLM prompts.
+* **Relational SQLite Database Storage (`reader/db/rfq_platform.db`)**: Stores extracted procurement records into structured `rfqs`, `quotations`, `documents`, and `suppliers` tables.
 * **Strict 8-Rule Document Intelligence Policy**:
   1. **Document Identity Authority**: `buyer` and `supplier` company names, addresses, tax IDs (GSTIN), and contact emails are extracted directly from attachment text (`RFQ.pdf`, PO, Invoice), overriding forwarding envelope senders.
   2. **Envelope Discrepancy Auditing**: Disagreements between email envelope senders and document contact emails are surfaced in `conflicts` (e.g. `sender_vs_buyer_email`).
@@ -129,10 +136,10 @@ EMAIL_AI/
   6. **Attachment MIME Classification**: Automatically infers MIME types and flags `extracted: true/false`.
   7. **Missing Fields Audit**: Tracks expected schema fields missing from source documents.
   8. **Dynamic Confidence Score**: Computes a Float (0.0–1.0) adjusted for conflicts, missing fields, or OCR artifacts.
-* **Directory Layout Parity**: Output files are written to `reader/outputs/<sender_prefix>/<DD-MM-YYYY-(HH_MM_SS_fff)>/`:
-  * `<sender_prefix>_extracted_data.json` (Hierarchical nested JSON containing `procurement_summary`, `documents`, `vendor_master_data`, `buyer_master_data`, and `item_master_data`)
-  * `<sender_prefix>_summary.txt` (Human-readable executive text report)
-* **Zero Extra File Clutter**: Ensures no secondary dynamic JSON files or root outputs are created.
+* **Directory Layout Parity**: Output files are written to `reader/outputs/<sender_username_domain>/<DD-MM-YYYY-(HH_MM_SS_fff)>/`:
+  * `<sender>_extracted_data.json` (Hierarchical nested JSON containing `procurement_summary`, `documents`, `vendor_master_data`, `buyer_master_data`, and `item_master_data`)
+  * `<sender>_summary.txt` (Human-readable executive text report)
+  * `individual_documents/` (Contains individual extracted JSON files for each attachment)
 
 ### 5. Advanced Groq Client & Resilient Rate Limit Protection (`reader/tools/groq_client.py`)
 * **Primary LPU Engine**: Powered by Meta's `llama-3.3-70b-versatile` running at 300+ tokens/sec on Groq LPUs.
