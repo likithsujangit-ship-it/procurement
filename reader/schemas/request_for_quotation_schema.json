@@ -3,8 +3,19 @@
   "type": "object",
   "properties": {
     "intent": {
-      "type": "string",
-      "const": "request_for_quotation"
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": ["request_for_quotation"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["request_for_quotation"]
+          }
+        }
+      ]
     },
     "document_type": {
       "type": "array",
@@ -43,7 +54,6 @@
     "date_extended_from": { "type": ["string", "null"] },
     "items": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "object",
         "properties": {

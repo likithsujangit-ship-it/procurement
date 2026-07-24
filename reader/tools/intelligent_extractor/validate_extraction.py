@@ -8,8 +8,44 @@ from pathlib import Path
 
 SCHEMA_DIR = Path(__file__).resolve().parent.parent.parent / "schemas"
 
+PRECEDENCE_ORDER = [
+    "invoice",
+    "invoice_only",
+    "delivery_note",
+    "shipment_dispatch_notification",
+    "purchase_order",
+    "purchase_order_issuance",
+    "request_for_quotation",
+    "quotation_response",
+    "vendor_price_list",
+    "other"
+]
+
+INTENT_SCHEMA_MAP = {
+    "invoice": "invoice",
+    "invoice_only": "invoice",
+    "delivery_note": "delivery_note",
+    "shipment_dispatch_notification": "delivery_note",
+    "purchase_order": "purchase_order",
+    "purchase_order_issuance": "purchase_order",
+    "request_for_quotation": "request_for_quotation",
+    "quotation_response": "quotation_response",
+    "vendor_price_list": "vendor_price_list"
+}
+
+def resolve_best_intent(intent) -> str:
+    from typing import Any
+    if isinstance(intent, list):
+        valid_intents = [i for i in intent if i in PRECEDENCE_ORDER]
+        if valid_intents:
+            return min(valid_intents, key=lambda x: PRECEDENCE_ORDER.index(x))
+        return intent[0] if intent else "other"
+    return str(intent) if intent else "other"
+
 def load_schema(intent: str):
-    schema_path = SCHEMA_DIR / f"{intent}_schema.json"
+    best_intent = resolve_best_intent(intent)
+    mapped_name = INTENT_SCHEMA_MAP.get(best_intent, best_intent)
+    schema_path = SCHEMA_DIR / f"{mapped_name}_schema.json"
     if not schema_path.exists():
         return None
     with open(schema_path, "r", encoding="utf-8") as f:
@@ -41,13 +77,15 @@ def validate_extraction(data: dict) -> tuple[bool, list[str], list[str], str]:
     Returns: (is_valid, errors, warnings, schema_used)
     """
     intent = data.get("intent", "unknown")
+    best_intent = resolve_best_intent(intent)
     schema = load_schema(intent)
     errors = []
     warnings = []
-    schema_used = f"{intent}_schema.json"
+    mapped_name = INTENT_SCHEMA_MAP.get(best_intent, best_intent)
+    schema_used = f"{mapped_name}_schema.json"
 
     if not schema:
-        warnings.append(f"No schema available for this intent ('{intent}') — routed to manual review")
+        warnings.append(f"No schema available for this intent ('{best_intent}') — routed to manual review")
         return True, errors, warnings, "none"
         
     # 1. JSON Schema validation

@@ -2,7 +2,21 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
-    "intent": { "type": "string", "const": "quotation_response" },
+    "intent": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": ["quotation_response"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["quotation_response"]
+          }
+        }
+      ]
+    },
     "document_type": {
       "type": "array",
       "items": { "type": "string", "enum": ["Quotation", "Price_Breakdown", "Technical_Proposal"] },
@@ -16,7 +30,6 @@
     "reference_rfq_number": { "type": "string" },
     "items": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "object",
         "properties": {
@@ -51,7 +64,7 @@
         "type": "object",
         "properties": {
           "filename": { "type": "string" },
-          "type": { "type": "string", "enum": ["Quotation", "Price_Breakdown", "Technical_Proposal"] },
+          "type": { "type": "string" },
           "contains": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["filename", "type"]

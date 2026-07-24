@@ -432,7 +432,7 @@ class UnifiedAssistant:
                     "You are a document analyzer. Summarize the following document content in a structured "
                     "bullet-point report. Highlight key takeaways, dates, and amounts if applicable."
                 )
-                summary_report = groq.get_completion(system_prompt, content)
+                summary_report = groq.get_completion(system_prompt, content, task="summarization")
                 print("\n" + "=" * 30 + f" SUMMARY OF {filename.upper()} " + "=" * 30)
                 if warning_prefix:
                     print(warning_prefix)
@@ -793,7 +793,7 @@ Do not proceed to final output until this pass is complete.
                 
                 try:
                     if groq.is_available():
-                        summary = groq.get_completion(system_prompt, content)
+                        summary = groq.get_completion(system_prompt, content, task="summarization")
                     else:
                         summary = "LLM not available."
                 except Exception as e:
@@ -817,9 +817,42 @@ Do not proceed to final output until this pass is complete.
 
 def main() -> None:
     """Main CLI run loop for Assistant."""
+def main():
+    import sys
     assistant = UnifiedAssistant()
+
+    # CLI Parameter Execution Mode
+    if len(sys.argv) > 1:
+        instruction = " ".join(sys.argv[1:]).strip()
+        print(f"\n[CLI Mode] Processing instruction: '{instruction}'")
+        routed = route_instruction(instruction)
+        action = routed.get("action")
+        params = routed.get("parameters", {})
+        
+        if action == "SEND_EMAIL":
+            assistant.handle_send_email(instruction)
+        elif action == "READ_EMAIL":
+            assistant.handle_read_email(params)
+        elif action == "SUMMARIZE_EMAIL":
+            assistant.handle_summarize_email(params)
+        elif action == "DOWNLOAD_ATTACHMENTS":
+            assistant.handle_download_attachments(params)
+        elif action == "EXTRACT_FILE":
+            assistant.handle_extract_file(params)
+        elif action == "SUMMARIZE_FILE":
+            assistant.handle_summarize_file(params)
+        elif action == "SEARCH_DOCUMENTS":
+            assistant.handle_search_documents(instruction)
+        elif action == "INTELLIGENT_EXTRACT":
+            assistant.handle_intelligent_extract(params)
+        elif action == "TEST_ALL_SUMMARIES":
+            assistant.handle_test_all_summaries(params)
+        else:
+            print(f"Unknown action: '{action}'.")
+        return
+
+    # Interactive Loop Mode
     print_banner()
-    
     while True:
         try:
             instruction = input("\nASSISTANT > ").strip()
@@ -829,7 +862,6 @@ def main() -> None:
                 print("Exiting UNIFIED ASSISTANT. Goodbye!")
                 break
                 
-            # Parse & Route
             routed = route_instruction(instruction)
             action = routed.get("action")
             params = routed.get("parameters", {})

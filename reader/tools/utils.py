@@ -8,6 +8,17 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from config import Config
+import os
+
+# Configure Tesseract path for Windows globally to ensure all readers can access it
+try:
+    import pytesseract
+    default_tesseract_path = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if os.path.exists(default_tesseract_path):
+        pytesseract.pytesseract.tesseract_cmd = default_tesseract_path
+except ImportError:
+    pass
+
 
 
 def setup_logger(name: str) -> logging.Logger:

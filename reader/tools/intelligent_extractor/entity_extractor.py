@@ -6,6 +6,18 @@ from tools.groq_client import GroqClient
 from .prompts import EXTRACTION_PROMPT, SYSTEM_PROMPT
 from .validate_extraction import validate_extraction
 
+COMPACT_SYSTEM_PROMPT = """You are a procurement document extraction engine.
+TASK: Read email+attachment text. Produce ONE JSON object matching the schema.
+RULES:
+- Extract buyer/supplier from document text, NOT email sender.
+- Normalize dates to ISO 8601 (YYYY-MM-DD). Use latest extended date as quotation_due_date.
+- Extract ALL vendor quotes from comparison sheets into vendor_quotes array.
+- For POs, extract: gst_rate, tds_rate, security_deposit, performance_bank_guarantee, liquidated_damages.
+- List missing expected fields in missing_fields[].
+- List data conflicts in conflicts[].
+- Return ONLY raw JSON. No markdown, no commentary.
+"""
+
 logger = setup_logger("entity_extractor")
 
 
@@ -33,15 +45,16 @@ class EntityExtractor:
         self.max_repairs_per_model = max_repairs_per_model
         self.schema_dir = Path(__file__).resolve().parent.parent.parent / "schemas"
         self.fallback_models = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "qwen/qwen3.6-27b",
-            "openai/gpt-oss-20b"
+            "nousresearch/hermes-3-llama-3.1-405b",
+            "meta-llama/llama-3.3-70b-instruct"
         ]
 
-    def _load_schema_for_intent(self, intent: str) -> dict:
+    def _load_schema_for_intent(self, intent) -> dict:
         """Loads the appropriate schema based on the intent, defaulting to master procurement schema."""
-        schema_path = self.schema_dir / f"{intent}_schema.json"
+        from tools.intelligent_extractor.validate_extraction import resolve_best_intent, INTENT_SCHEMA_MAP
+        best_intent = resolve_best_intent(intent)
+        mapped_name = INTENT_SCHEMA_MAP.get(best_intent, best_intent)
+        schema_path = self.schema_dir / f"{mapped_name}_schema.json"
         master_path = self.schema_dir / "master_procurement_schema.json"
         
         if schema_path.exists():
@@ -92,13 +105,19 @@ class EntityExtractor:
         Only SUCCESS state is allowed to populate buyer/supplier/items/confidence.
         """
         active_hints = dict(hints or {})
+        active_hints.pop("items", None)
         active_hints.update(extract_date_hints(unified_context))
 
+        def strip_descriptions(d: Any) -> Any:
+            if isinstance(d, dict):
+                return {k: strip_descriptions(v) for k, v in d.items() if k != "description"}
+            elif isinstance(d, list):
+                return [strip_descriptions(v) for v in d]
+            return d
+
         schema_dict = self._load_schema_for_intent(intent)
-        schema_str = json.dumps(schema_dict, indent=2)
-        hints_str = json.dumps(active_hints, indent=2)
-        
-        initial_prompt = EXTRACTION_PROMPT.format(context=unified_context, schema=schema_str, hints=hints_str)
+        schema_str = json.dumps(strip_descriptions(schema_dict), separators=(',', ':'))
+        hints_str = json.dumps(active_hints, separators=(',', ':'))
 
         # Clear per-run state variables completely
         last_raw_output = ""
@@ -109,9 +128,24 @@ class EntityExtractor:
         for model in self.fallback_models:
             logger.info(f"Initiating entity extraction with model '{model}'...")
             
+            # If the model is llama-3.1-8b-instant, ensure the context fits within its strict rate limits
+            model_context = unified_context
+            model_system_prompt = SYSTEM_PROMPT
+            if "8b" in model.lower():
+                model_system_prompt = COMPACT_SYSTEM_PROMPT
+                if len(unified_context) > 3000:
+                    from tools.intelligent_extractor.merger import truncate_text
+                    truncated = truncate_text(unified_context, max_tokens=600, hard_ceiling=4000)
+                    if isinstance(truncated, list):
+                        model_context = truncated[0] if truncated else ""
+                    else:
+                        model_context = truncated
+
+            model_prompt = EXTRACTION_PROMPT.format(context=model_context, schema=schema_str, hints=hints_str)
+            
             messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": initial_prompt}
+                {"role": "system", "content": model_system_prompt},
+                {"role": "user", "content": model_prompt}
             ]
 
             repair_attempt = 0
@@ -128,7 +162,8 @@ class EntityExtractor:
                         messages=messages,
                         model=model,
                         response_json=True,
-                        json_schema=schema_dict
+                        json_schema=schema_dict,
+                        task="extraction"
                     )
 
                     last_raw_output = response_text
@@ -152,31 +187,38 @@ class EntityExtractor:
                     last_error_type = "APIError"
                     last_error_details = str(api_err)
                     logger.warning(f"API call failed for model '{model}' on attempt {repair_attempt}: {api_err}")
-                    # Quota exhausted — no point retrying any model or repair attempt
-                    if "Preflight token quota check failed" in last_error_details:
-                        break
 
                 if repair_attempt < self.max_repairs_per_model:
                     repair_attempt += 1
-                    correction_prompt = (
-                        f"The previous response contained {last_error_type} errors:\n"
-                        f"{last_error_details}\n\n"
-                        f"MALFORMED OUTPUT:\n{last_raw_output}\n\n"
-                        f"Please correct all errors and return ONLY a valid raw JSON object matching the required schema. "
-                        f"Do not include code blocks, markdown formatting, or explanations."
-                    )
-                    messages.append({"role": "assistant", "content": last_raw_output})
-                    messages.append({"role": "user", "content": correction_prompt})
+                    if "8b" in model.lower():
+                        # For 8b model: replace user message to keep size constant within TPM limit
+                        compact_correction = (
+                            f"Fix these errors in your JSON: {last_error_details}\n\n"
+                            f"Input Context:\n{model_context}\n\n"
+                            f"Schema:\n{schema_str}\n\n"
+                            "Return ONLY corrected valid JSON."
+                        )
+                        messages = [
+                            {"role": "system", "content": model_system_prompt},
+                            {"role": "user", "content": compact_correction}
+                        ]
+                    else:
+                        # For larger models: append multi-turn correction
+                        correction_prompt = (
+                            f"The previous response contained {last_error_type} errors:\n"
+                            f"{last_error_details}\n\n"
+                            f"MALFORMED OUTPUT:\n{last_raw_output}\n\n"
+                            f"Please correct all errors and return ONLY a valid raw JSON object matching the required schema. "
+                            f"Do not include code blocks, markdown formatting, or explanations."
+                        )
+                        messages.append({"role": "assistant", "content": last_raw_output})
+                        messages.append({"role": "user", "content": correction_prompt})
                 else:
                     logger.warning(
                         f"Max repair attempts ({self.max_repairs_per_model}) reached for model '{model}'. "
                         f"Falling back to next model if available."
                     )
                     break
-
-            # Propagate quota failure immediately — all models share the same daily limit
-            if "Preflight token quota check failed" in last_error_details:
-                break
 
         fail_msg = f"API error across all models: {last_error_details}" if last_error_details else "All model extraction attempts failed"
         logger.error(

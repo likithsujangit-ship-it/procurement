@@ -3,13 +3,30 @@
   "type": "object",
   "properties": {
     "intent": {
-      "type": "string",
-      "enum": [
-        "request_for_quotation",
-        "purchase_order_issuance",
-        "shipment_dispatch_notification",
-        "invoice_only",
-        "other"
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "request_for_quotation",
+            "purchase_order_issuance",
+            "shipment_dispatch_notification",
+            "invoice_only",
+            "other"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "request_for_quotation",
+              "purchase_order_issuance",
+              "shipment_dispatch_notification",
+              "invoice_only",
+              "other"
+            ]
+          }
+        }
       ]
     },
     "document_type": {
@@ -128,7 +145,31 @@
     "items": {
       "type": "array",
       "items": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "part_number": { "type": "string" },
+          "description": { "type": "string" },
+          "quantity": { "type": ["number", "null"] },
+          "unit": { "type": "string" },
+          "material_spec": { "type": "string" },
+          "vendor_quotes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "vendor_name": { "type": "string" },
+                "quoted_price": { "type": ["number", "null"] },
+                "currency": { "type": "string" }
+              },
+              "required": ["vendor_name"]
+            }
+          },
+          "line_total": { "type": ["number", "null"] },
+          "currency": { "type": "string" },
+          "line": { "type": ["integer", "null"] }
+        },
+        "required": ["part_number", "description", "quantity", "unit"],
+        "additionalProperties": true
       }
     },
     "commercial_terms": {
@@ -169,7 +210,8 @@
         "landed_price_methodology": {
           "type": "string"
         }
-      }
+      },
+      "required": ["payment_terms", "incoterms", "currency", "delivery_requirement", "performance_bank_guarantee"]
     },
     "delivery_requirements": {
       "type": "object",

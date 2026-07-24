@@ -115,7 +115,8 @@ def _summarize_with_groq(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         model="llama-3.3-70b-versatile",
-        response_json=True
+        response_json=True,
+        task="summarization"
     )
     
     logger.debug(f"Raw response from Groq summarizer: {raw_response}")
@@ -204,12 +205,10 @@ def save_extraction_outputs(
     email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
     if email_match:
         email = email_match.group(0).lower().strip()
-        username, domain = email.split("@", 1)
-        clean_user = "".join(c for c in username if c.isalnum() or c in ("-", "_", "."))
-        clean_domain = "".join(c for c in domain if c.isalnum() or c in ("-", "_", "."))
-        prefix = f"{clean_user}_{clean_domain}" if clean_user else "unknown"
+        prefix = "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in email).replace("@", "_")
+        prefix = prefix or "unknown"
     else:
-        prefix = "".join(c for c in sender_raw if c.isalnum() or c in ("-", "_", "."))
+        prefix = "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in sender_raw).replace("@", "_")
         prefix = prefix.strip().lower() or "unknown"
 
     # 2. Parse timestamp folder name matching download format
@@ -301,10 +300,9 @@ def save_extraction_outputs(
             m = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
             if m:
                 email = m.group(0).lower().strip()
-                username, domain = email.split("@", 1)
-                clean_user = "".join(c for c in username if c.isalnum() or c in ("-", "_", "."))
-                clean_domain = "".join(c for c in domain if c.isalnum() or c in ("-", "_", "."))
-                clean_prefix = f"{clean_user}_{clean_domain}" if clean_user else "unknown"
+                username = email.split("@", 1)[0]
+                clean_prefix = "".join(c for c in username if c.isalnum() or c in ("-", "_", "."))
+                clean_prefix = clean_prefix or "unknown"
             else:
                 clean_prefix = "".join(c for c in sender_raw if c.isalnum() or c in ("-", "_", "."))
                 clean_prefix = clean_prefix.strip().lower() or "unknown"

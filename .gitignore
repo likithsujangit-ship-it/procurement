@@ -39,3 +39,6 @@ reader/files/
 sender/outputs/
 reader/outputs/
 outputs/
+*.db
+*.sqlite
+scratch/

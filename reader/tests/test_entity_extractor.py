@@ -49,7 +49,7 @@ def test_repair_attempt_success(mock_groq):
     res = extractor.extract("some context", "request_for_quotation")
     assert res.get("intent") == "request_for_quotation"
     assert res.get("extraction_failed") is not True
-    assert res.get("extracted_with_model") == "llama-3.3-70b-versatile"
+    assert res.get("extracted_with_model") in ("llama-3.3-70b-versatile", "gpt-oss-120b", "nousresearch/hermes-3-llama-3.1-405b")
     assert extractor.llm.get_chat_completion.call_count == 2
 
 @patch("tools.intelligent_extractor.entity_extractor.GroqClient")

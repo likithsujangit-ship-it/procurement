@@ -19,17 +19,19 @@ def download_attachment(
     message_id: str,
     attachment_id: str,
     filename: str,
-    target_dir: Path
+    target_dir: Path,
+    sender_email: str
 ) -> Path:
     """
-    Downloads an individual attachment from a Gmail message and saves it to target_dir.
+    Downloads an individual attachment from a Gmail message and saves it to content-addressed storage.
     
     Args:
         service: Google API discovery resource.
         message_id: Gmail message ID.
         attachment_id: Gmail attachment ID.
         filename: Original name of the attachment file.
-        target_dir: Directory where the file should be saved.
+        target_dir: Directory where the file should be saved (fallback/logging context).
+        sender_email: Sender email address to record in database.
         
     Returns:
         The Path to the saved file.
@@ -62,23 +64,21 @@ def download_attachment(
             
         safe_filename = f"{clean_stem}{suffix}"
         
-        # Determine unique filename to avoid overwriting existing files
-        save_path = target_dir / safe_filename
-        counter = 1
-        while save_path.exists():
-            save_path = target_dir / f"{clean_stem}_{counter}{suffix}"
-            counter += 1
-
-        # Write to disk
-        with open(save_path, "wb") as f:
-            f.write(file_data)
-            
-        logger.info(f"Saved attachment to: {save_path.resolve()}")
+        # Save using content-addressed storage
+        from db.storage import save_attachment
+        res = save_attachment(
+            raw_bytes=file_data,
+            original_filename=safe_filename,
+            sender_email=sender_email
+        )
+        
+        save_path = Path(res["path"])
+        logger.info(f"Saved attachment to content-hash store: {save_path.resolve()} (Duplicate: {res['is_duplicate']})")
         return save_path
 
     except Exception as e:
         logger.error(f"Failed to download attachment '{filename}': {e}")
-        raise
+        raise e
 
 
 def download_all_attachments(
@@ -108,12 +108,10 @@ def download_all_attachments(
     email_match = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender_raw)
     if email_match:
         email = email_match.group(0).lower().strip()
-        username, domain = email.split("@", 1)
-        clean_user = "".join(c for c in username if c.isalnum() or c in ("-", "_", "."))
-        clean_domain = "".join(c for c in domain if c.isalnum() or c in ("-", "_", "."))
-        prefix = f"{clean_user}_{clean_domain}" if clean_user else "unknown"
+        prefix = "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in email).replace("@", "_")
+        prefix = prefix or "unknown"
     else:
-        prefix = "".join(c for c in sender_raw if c.isalnum() or c in ("-", "_", "."))
+        prefix = "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in sender_raw).replace("@", "_")
         prefix = prefix.strip().lower() or "unknown"
 
     # 2. Create the organizer subfolder with date/month/year-(time) with milliseconds
@@ -134,7 +132,7 @@ def download_all_attachments(
     target_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Organizing files into subfolder: {target_dir.resolve()}")
 
-    # 3. Download files into the subfolder
+    # 3. Download files into the content-addressed store
     for att in attachments:
         try:
             path = download_attachment(
@@ -142,7 +140,8 @@ def download_all_attachments(
                 message_id=att["messageId"],
                 attachment_id=att["attachmentId"],
                 filename=att["filename"],
-                target_dir=target_dir
+                target_dir=target_dir,
+                sender_email=email
             )
             downloaded_paths.append(path)
         except Exception as e:

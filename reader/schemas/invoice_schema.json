@@ -2,7 +2,21 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
-    "intent": { "type": "string", "const": "invoice" },
+    "intent": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": ["invoice", "invoice_only"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["invoice", "invoice_only"]
+          }
+        }
+      ]
+    },
     "document_type": {
       "type": "array",
       "items": { "type": "string", "enum": ["Invoice", "Tax_Document", "Receipt"] },
@@ -16,7 +30,6 @@
     "reference_po_number": { "type": "string" },
     "items": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "object",
         "properties": {
@@ -44,7 +57,7 @@
         "type": "object",
         "properties": {
           "filename": { "type": "string" },
-          "type": { "type": "string", "enum": ["Invoice", "Tax_Document", "Receipt"] },
+          "type": { "type": "string" },
           "contains": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["filename", "type"]

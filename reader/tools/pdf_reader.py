@@ -11,6 +11,19 @@ from tools.utils import setup_logger, preprocess_image_for_ocr
 logger = setup_logger("pdf_reader")
 
 
+def clean_ocr_text(text: str) -> str:
+    """Corrects common OCR misreads in APGENCO procurement PDFs."""
+    if not text:
+        return text
+    import re
+    # Fix Room 309 misreads (S09, 509, 809)
+    text = re.sub(r'ROOM\s*NO\.?\s*[S58]09', 'Room No.309', text, flags=re.IGNORECASE)
+    # Fix Dr MVR RTPP misreads (NTTPS RPP, DRIMLV RTPP)
+    text = re.sub(r'Dr\.?\s*NTTPS?\s*RPP', 'Dr. MVR RTPP', text, flags=re.IGNORECASE)
+    text = re.sub(r'DRIMLV\s*RTPP', 'Dr. MVR RTPP', text, flags=re.IGNORECASE)
+    return text
+
+
 def extract_pdf_text(filepath: Path) -> str:
     """
     Extracts all text content from a PDF file.
@@ -103,9 +116,9 @@ def extract_pdf_text(filepath: Path) -> str:
 
         if not text_parts:
             logger.warning(f"No text extracted from PDF: {filepath.name} (possibly scanned image). Triggering OCR fallback...")
-            return extract_pdf_ocr(filepath)
+            return clean_ocr_text(extract_pdf_ocr(filepath))
             
-        final_text = "\n\n".join(text_parts)
+        final_text = clean_ocr_text("\n\n".join(text_parts))
         meta_block = f"\n\n__PDF_META__|pages_detected:{len(reader.pages)}|pages_processed:{len(text_parts)}|ocr_pages:{ocr_chars > 0}"
         return final_text + meta_block
 

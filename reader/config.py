@@ -31,6 +31,7 @@ class Config:
 
     # API Keys
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
 
     # Reader Settings
     DEFAULT_MAX_RESULTS: int = int(os.getenv("DEFAULT_MAX_RESULTS", "5"))
@@ -44,8 +45,10 @@ class Config:
         """
         errors = []
 
-        if not cls.GROQ_API_KEY or cls.GROQ_API_KEY == "gsk_your_groq_api_key_here":
-            errors.append("GROQ_API_KEY is not configured.")
+        has_groq = cls.GROQ_API_KEY and cls.GROQ_API_KEY != "gsk_your_groq_api_key_here"
+        has_openrouter = bool(cls.OPENROUTER_API_KEY)
+        if not has_groq and not has_openrouter:
+            errors.append("Neither GROQ_API_KEY nor OPENROUTER_API_KEY is configured.")
 
         if not cls.CREDENTIALS_PATH.exists():
             errors.append(

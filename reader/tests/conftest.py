@@ -1,6 +1,10 @@
+import os
 import pytest
 from pathlib import Path
 from config import Config
+
+# Set database URL to in-memory SQLite before any other imports occur
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 @pytest.fixture(autouse=True, scope="session")
 def override_config_dirs(tmp_path_factory):
@@ -10,5 +14,9 @@ def override_config_dirs(tmp_path_factory):
     
     Config.DOWNLOAD_DIR = temp_download
     Config.OUTPUTS_DIR = temp_outputs
+    
+    # Initialize the in-memory database schema for tests
+    from db.db import init_db
+    init_db()
     
     yield

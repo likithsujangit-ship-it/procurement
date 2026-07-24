@@ -3,8 +3,19 @@
   "type": "object",
   "properties": {
     "intent": {
-      "type": "string",
-      "const": "purchase_order"
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": ["purchase_order", "purchase_order_issuance"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["purchase_order", "purchase_order_issuance"]
+          }
+        }
+      ]
     },
     "document_type": {
       "type": "array",
@@ -46,7 +57,6 @@
     "approval_status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
     "items": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "object",
         "properties": {
@@ -54,10 +64,25 @@
           "description": { "type": "string" },
           "quantity": { "type": ["integer", "number", "null"] },
           "unit": { "type": "string" },
-          "material_spec": { "type": "string" }
+          "material_spec": { "type": "string" },
+          "vendor_quotes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "vendor_name": { "type": "string" },
+                "quoted_price": { "type": ["number", "null"] },
+                "currency": { "type": "string" }
+              },
+              "required": ["vendor_name"]
+            }
+          },
+          "line_total": { "type": ["number", "null"] },
+          "currency": { "type": "string" },
+          "line": { "type": ["integer", "null"] }
         },
         "required": ["part_number", "description", "quantity", "unit", "material_spec"],
-        "additionalProperties": false
+        "additionalProperties": true
       }
     },
     "commercial_terms": {
@@ -96,7 +121,7 @@
         "type": "object",
         "properties": {
           "filename": { "type": "string" },
-          "type": { "type": "string", "enum": ["Purchase_Order", "Delivery_Schedule", "Price_List", "Signed_Approval"] },
+          "type": { "type": "string" },
           "contains": { 
             "type": "array",
             "items": { "type": "string" },

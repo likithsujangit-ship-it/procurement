@@ -53,25 +53,36 @@ def _line_total(item: Dict[str, Any]) -> Any:
 
 
 def check_arithmetic_reconciliation(data: Dict[str, Any], tolerance: float = 0.01) -> float:
-    """Return 1.0 only when every item has reconcilable quantity, price, and total."""
+    """Return 1.0 only when every item with numerical data has reconcilable quantity, price, and total."""
     items = data.get("items")
     if not isinstance(items, list) or not items:
         return 0.0
 
+    checked_any = False
     for item in items:
         if not isinstance(item, dict):
             return 0.0
         quantity = item.get("quantity")
         unit_price = item.get("unit_price")
         line_total = _line_total(item)
+        
+        # Skip completely empty/unpopulated item rows
+        if quantity is None and unit_price is None and line_total is None:
+            continue
+            
+        # If any of the parts are missing, it's not reconciled
         if quantity is None or unit_price is None or line_total is None:
             return 0.0
+            
         try:
             if abs(float(quantity) * float(unit_price) - float(line_total)) > tolerance:
                 return 0.0
+            checked_any = True
         except (TypeError, ValueError):
             return 0.0
-    return 1.0
+            
+    return 1.0 if checked_any else 0.0
+
 
 
 def parse_iso8601_date(value: Any) -> Optional[date]:

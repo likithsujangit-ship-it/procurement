@@ -7,7 +7,7 @@ budget scaling up to a hard ceiling (20,000 chars), and multi-chunk context spli
 
 import logging
 import re
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +59,14 @@ def classify_line_tier(line: str) -> str:
     return "NARRATIVE"
 
 
-def truncate_text(text: str, max_tokens: int = 1800) -> Union[str, List[str]]:
+def truncate_text(text: str, max_tokens: int = 1000, hard_ceiling: Optional[int] = None) -> Union[str, List[str]]:
     """
     Structure-aware truncation ensuring context fits within budget using 3-tier priority.
     - Tier 1: STRUCTURED & Tier 2: METADATA are NEVER dropped when trimming NARRATIVE.
-    - If STRUCTURED + METADATA > initial max_chars, dynamically scales max_chars up to HARD_CEILING (20,000 chars).
-    - If STRUCTURED + METADATA > HARD_CEILING (20,000 chars), splits STRUCTURED items into multiple context chunks.
+    - If STRUCTURED + METADATA > initial max_chars, dynamically scales max_chars up to ceiling.
+    - If STRUCTURED + METADATA > ceiling, splits STRUCTURED items into multiple context chunks.
     """
+    ceiling = hard_ceiling if hard_ceiling is not None else HARD_CEILING_CHARS
     initial_max_chars = max_tokens * 4
     if len(text) <= initial_max_chars:
         return text
@@ -116,26 +117,26 @@ def truncate_text(text: str, max_tokens: int = 1800) -> Union[str, List[str]]:
         logger.info(f"Structure-aware truncation: preserved all STRUCTURED & METADATA lines, trimmed {dropped_count} NARRATIVE lines to fit {initial_max_chars} chars.")
         return "\n".join(final_lines)
 
-    # Case 2: Required (STRUCTURED + METADATA) > initial_max_chars BUT <= HARD_CEILING_CHARS (20,000)
-    if required_len <= HARD_CEILING_CHARS:
+    # Case 2: Required (STRUCTURED + METADATA) > initial_max_chars BUT <= ceiling
+    if required_len <= ceiling:
         logger.warning(
             f"Document structured & metadata content ({required_len} chars) exceeds initial max_chars ({initial_max_chars}). "
-            f"Dynamically expanding max_chars to {required_len} (hard ceiling: {HARD_CEILING_CHARS})."
+            f"Dynamically expanding max_chars to {required_len} (hard ceiling: {ceiling})."
         )
         kept_indices = set(struct_indices + meta_indices)
         final_lines = [line for idx, line in enumerate(lines) if idx in kept_indices]
         logger.info(f"Dynamically expanded context: preserved all {len(final_lines)} STRUCTURED & METADATA lines without middle truncation.")
         return "\n".join(final_lines)
 
-    # Case 3: Required (STRUCTURED + METADATA) > HARD_CEILING_CHARS (20,000) -> Split into multi-chunk context
+    # Case 3: Required (STRUCTURED + METADATA) > ceiling -> Split into multi-chunk context
     logger.warning(
-        f"Structured + Metadata content ({required_len} chars) exceeds HARD_CEILING ({HARD_CEILING_CHARS} chars). "
+        f"Structured + Metadata content ({required_len} chars) exceeds HARD_CEILING ({ceiling} chars). "
         "Splitting table rows into sequential context chunks to guarantee zero item row loss."
     )
 
     metadata_text = "\n".join([line for _, line in metadata_lines])
     meta_chunk_len = len(metadata_text) + 2
-    available_struct_budget = max(2000, HARD_CEILING_CHARS - meta_chunk_len)
+    available_struct_budget = max(2000, ceiling - meta_chunk_len)
 
     chunks = []
     curr_struct_chunk = []
